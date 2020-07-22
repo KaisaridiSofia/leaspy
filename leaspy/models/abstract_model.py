@@ -318,7 +318,7 @@ class AbstractModel:
             # noise_var = self.parameters['noise_std'] ** 2
             noise_var = self.parameters['noise_std'] * self.parameters['noise_std']
             attachment = 0.5 * (1. / noise_var) * squared_sum
-            attachment += math.log(math.sqrt(TWO_PI * noise_var)) * torch.tensor(data.nb_observations_per_individuals)
+            attachment += torch.log(torch.sqrt(TWO_PI * noise_var)) * torch.tensor(data.nb_observations_per_individuals)
         elif self.loss == 'crossentropy':
             res = torch.clamp(res, 1e-38, 1. - 1e-7) # safety before taking the log
             neg_crossentropy = data.values * torch.log(res) + (1. - data.values) * torch.log(1. - res)

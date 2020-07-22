@@ -248,12 +248,12 @@ class MultivariateModel(AbstractMultivariateModel):
 
         tau_mean = self.parameters['tau_mean'].clone()
         tau_std_updt = torch.mean(suff_stats['tau_sqrd']) - 2 * tau_mean * torch.mean(suff_stats['tau'])
-        self.parameters['tau_std'] = torch.sqrt(tau_std_updt + self.parameters['tau_mean'] ** 2)
+        self.parameters['tau_std'] = torch.sqrt(torch.clamp(tau_std_updt + self.parameters['tau_mean'] ** 2, 0.))
         self.parameters['tau_mean'] = torch.mean(suff_stats['tau'])
 
         xi_mean = self.parameters['xi_mean']
         xi_std_updt = torch.mean(suff_stats['xi_sqrd']) - 2 * xi_mean * torch.mean(suff_stats['xi'])
-        self.parameters['xi_std'] = torch.sqrt(xi_std_updt + self.parameters['xi_mean'] ** 2)
+        self.parameters['xi_std'] = torch.sqrt(torch.clamp(xi_std_updt + self.parameters['xi_mean'] ** 2, 0.))
         # self.parameters['xi_mean'] = torch.mean(suff_stats['xi'])
 
         S1 = data.L2_norm
