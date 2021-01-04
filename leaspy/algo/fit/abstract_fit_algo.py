@@ -38,6 +38,13 @@ class AbstractFitAlgo(AbstractAlgo):
 
         print("The standard deviation of the noise at the end of the calibration is {:.4f}".format(
             model.parameters['noise_std']))
+        loss = model.compute_individual_attachment_tensorized_mcmc(data, realizations).sum().detach().numpy()
+        regularization = 0.
+        for key in realizations.reals_ind_variable_names:
+            regularization += model.compute_regularity_realization(realizations[key]).sum()
+        for key in realizations.reals_pop_variable_names:
+            regularization += model.compute_regularity_realization(realizations[key]).sum()
+        print("\nFinal loss : \n{} : {}\nRegularization : {}".format(model.loss, loss, regularization.detach().numpy()))
         return realizations
 
     def _maximization_step(self, data, model, realizations):

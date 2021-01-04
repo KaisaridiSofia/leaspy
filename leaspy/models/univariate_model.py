@@ -138,6 +138,44 @@ class UnivariateModel(AbstractModel):
 
         return model
 
+    def compute_jacobian_tensorized(self, timepoints, ind_parameters, MCMC=False):
+        '''
+
+        Parameters
+        ----------
+        timepoints
+        ind_parameters
+        attribute_type
+
+        Returns
+        -------
+        The Jacobian of the model with parameters order : [xi, tau, sources].
+        This function aims to be used in scipy_minimize.
+
+        '''
+        # Population parameters
+        g = self._get_attributes(MCMC)
+
+        # Individual parameters
+        xi, tau = ind_parameters['xi'], ind_parameters['tau']
+
+        reparametrized_time = self.time_reparametrization(timepoints, xi, tau)
+
+        # Log likelihood computation
+        LL = reparametrized_time.unsqueeze(-1)
+
+        LL = 1. + g * torch.exp(-LL)
+        model = 1. / LL
+
+        c = model * (1. - model)
+
+        xi_derivative = reparametrized_time.unsqueeze(1).unsqueeze(-1)
+        tau_derivative = (-torch.exp(xi) * torch.ones_like(reparametrized_time)).unsqueeze(1).unsqueeze(-1)
+
+        jacob = c * torch.cat([xi_derivative, tau_derivative], 1)
+
+        return jacob
+
     def compute_sufficient_statistics(self, data, realizations):
         sufficient_statistics = {}
         sufficient_statistics['g'] = realizations['g'].tensor_realizations.detach() # avoid 0D / 1D tensors mix
@@ -158,51 +196,104 @@ class UnivariateModel(AbstractModel):
         sufficient_statistics['reconstruction_x_reconstruction'] = torch.sum(norm_2, dim=2)
 
         if self.loss == 'crossentropy':
-            sufficient_statistics['crossentropy'] = self.compute_individual_attachment_tensorized(data, ind_parameters, attribute_type=True)
+            sufficient_statistics['crossentropy'] = self.compute_individual_attachment_tensorized(data,
+                                                                    ind_parameters, attribute_type=True).unsqueeze(-1)
 
         return sufficient_statistics
 
-    def update_model_parameters_burn_in(self, data, realizations):
+    def update_model_parameters_burn_in(self, data, realizations, clusters=None):
 
         # Memoryless part of the algorithm
         self.parameters['g'] = realizations['g'].tensor_realizations.detach()
         xi = realizations['xi'].tensor_realizations.detach()
-        self.parameters['xi_mean'] = torch.mean(xi)
-        self.parameters['xi_std'] = torch.std(xi)
         tau = realizations['tau'].tensor_realizations.detach()
-        self.parameters['tau_mean'] = torch.mean(tau)
-        self.parameters['tau_std'] = torch.std(tau)
+        if clusters is None:
+            self.parameters['xi_mean'] = torch.mean(xi)
+            self.parameters['xi_std'] = torch.std(xi)
+            self.parameters['tau_mean'] = torch.mean(tau)
+            self.parameters['tau_std'] = torch.std(tau)
 
-        param_ind = self.get_param_from_real(realizations)
-        squared_diff = self.compute_sum_squared_tensorized(data, param_ind, attribute_type=True).sum()
-        self.parameters['noise_std'] = torch.sqrt(squared_diff / (data.n_visits * data.dimension))
+            param_ind = self.get_param_from_real(realizations)
+            squared_diff = self.compute_sum_squared_tensorized(data, param_ind, attribute_type=True).sum()
+            self.parameters['noise_std'] = torch.sqrt(squared_diff / data.n_observations)
 
-        if self.loss == 'crossentropy':
-            crossentropy = self.compute_individual_attachment_tensorized(data, param_ind, attribute_type=True).sum()
-            self.parameters['crossentropy'] = crossentropy
-        # Stochastic sufficient statistics used to update the parameters of the model
+            if self.loss == 'crossentropy':
+                crossentropy = self.compute_individual_attachment_tensorized(data, param_ind, attribute_type=True).sum()
+                self.parameters['crossentropy'] = crossentropy
+            # Stochastic sufficient statistics used to update the parameters of the model
+        else:
+            if clusters.sum() != 0.:
+                S_inv = 1./clusters.sum()
+                clusters = clusters.unsqueeze(-1)
+                self.parameters['xi_mean'] = S_inv * (clusters * xi).sum()
+                xi_err = xi - self.parameters['xi_mean']
+                xi_err2 = xi_err * xi_err
+                self.parameters['xi_std'] = torch.sqrt((S_inv * (clusters * xi_err2)).sum())
+                self.parameters['tau_mean'] = S_inv * (clusters * tau).sum()
+                tau_err = tau - self.parameters['tau_mean']
+                tau_err2 = tau_err * tau_err
+                self.parameters['tau_std'] = torch.sqrt((S_inv * (clusters * tau_err2)).sum())
 
-    def update_model_parameters_normal(self, data, suff_stats):
+                param_ind = self.get_param_from_real(realizations)
+                squared_diff = (clusters.squeeze(-1)*self.compute_sum_squared_tensorized(data, param_ind, attribute_type=True)).sum()
+                self.parameters['noise_std'] = torch.sqrt(squared_diff / ((clusters.unsqueeze(-1) * data.mask.float()).sum()))
+
+                if self.loss == 'crossentropy':
+                    crossentropy = (clusters.squeeze(-1)*self.compute_individual_attachment_tensorized(data, param_ind,
+                                                                                 attribute_type=True)).sum()
+                    self.parameters['crossentropy'] = crossentropy
+
+    def update_model_parameters_normal(self, data, suff_stats, clusters=None):
         self.parameters['g'] = suff_stats['g']
 
-        tau_mean = self.parameters['tau_mean']
-        tau_std_updt = torch.mean(suff_stats['tau_sqrd']) - 2 * tau_mean * torch.mean(suff_stats['tau'])
-        self.parameters['tau_std'] = torch.sqrt(torch.clamp(tau_std_updt + self.parameters['tau_mean'] ** 2, 0.))
-        self.parameters['tau_mean'] = torch.mean(suff_stats['tau'])
+        if clusters is None:
 
-        xi_mean = self.parameters['xi_mean']
-        xi_std_updt = torch.mean(suff_stats['xi_sqrd']) - 2 * xi_mean * torch.mean(suff_stats['xi'])
-        self.parameters['xi_std'] = torch.sqrt(torch.clamp(xi_std_updt + self.parameters['xi_mean'] ** 2, 0.))
-        self.parameters['xi_mean'] = torch.mean(suff_stats['xi'])
+            self.parameters['tau_mean'] = torch.mean(suff_stats['tau'])
+            tau_mean = self.parameters['tau_mean']
+            tau_std_updt = torch.mean(suff_stats['tau_sqrd']) - 2 * tau_mean * torch.mean(suff_stats['tau'])
+            self.parameters['tau_std'] = torch.sqrt(torch.clamp(tau_std_updt + tau_mean ** 2, 1e-32))
 
-        S1 = torch.sum(suff_stats['obs_x_obs'])
-        S2 = torch.sum(suff_stats['obs_x_reconstruction'])
-        S3 = torch.sum(suff_stats['reconstruction_x_reconstruction'])
+            self.parameters['xi_mean'] = torch.mean(suff_stats['xi'])
+            xi_mean = self.parameters['xi_mean']
+            xi_std_updt = torch.mean(suff_stats['xi_sqrd']) - 2 * xi_mean * torch.mean(suff_stats['xi'])
+            self.parameters['xi_std'] = torch.sqrt(torch.clamp(xi_std_updt + xi_mean ** 2, 1e-32))
 
-        self.parameters['noise_std'] = torch.sqrt((S1 - 2. * S2 + S3) / (data.dimension * data.n_visits))
+            S1 = torch.sum(suff_stats['obs_x_obs'])
+            S2 = torch.sum(suff_stats['obs_x_reconstruction'])
+            S3 = torch.sum(suff_stats['reconstruction_x_reconstruction'])
 
-        if self.loss == 'crossentropy':
-            self.parameters['crossentropy'] = suff_stats['crossentropy'].sum()
+            self.parameters['noise_std'] = torch.sqrt((S1 - 2. * S2 + S3) / data.n_observations)
+
+            if self.loss == 'crossentropy':
+                self.parameters['crossentropy'] = suff_stats['crossentropy'].sum()
+
+        else:
+            if clusters.sum() != 0.:
+                S_inv = 1./clusters.sum()
+                clusters = clusters.unsqueeze(-1)
+
+                self.parameters['tau_mean'] = S_inv * (clusters * suff_stats['tau']).sum()
+                tau_mean = self.parameters['tau_mean']
+                tau_std_updt = S_inv*(clusters*(
+                        suff_stats['tau_sqrd'] - 2 * tau_mean * suff_stats['tau'] + tau_mean ** 2)).sum()
+                self.parameters['tau_std'] = torch.sqrt(torch.clamp(tau_std_updt, 1e-32))
+
+                self.parameters['xi_mean'] = S_inv * (clusters * suff_stats['xi']).sum()
+                xi_mean = self.parameters['xi_mean']
+                xi_std_updt = S_inv * (clusters * (
+                            suff_stats['xi_sqrd'] - 2 * xi_mean * suff_stats['xi'] + xi_mean ** 2)).sum()
+                self.parameters['xi_std'] = torch.sqrt(torch.clamp(xi_std_updt, 1e-32))
+
+                S1 = torch.sum(clusters*suff_stats['obs_x_obs'])
+                S2 = torch.sum(clusters*suff_stats['obs_x_reconstruction'])
+                S3 = torch.sum(clusters*suff_stats['reconstruction_x_reconstruction'])
+
+                self.parameters['noise_std'] = torch.sqrt((S1 - 2. * S2 + S3) / ((clusters.unsqueeze(-1) * data.mask.float()).sum()))
+
+                if self.loss == 'crossentropy':
+                    self.parameters['crossentropy'] = (clusters*suff_stats['crossentropy']).sum()
+
+
 
     # def get_param_from_real(self,realizations):
     #    xi = realizations['xi'].tensor_realizations

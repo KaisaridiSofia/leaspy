@@ -467,7 +467,8 @@ class SimulationAlgorithm(AbstractAlgo):
         # TODO : parallelize this for loop
         for i in range(len(timepoints)):
             indiv_param = {key: val[i] for key, val in simulated_parameters.items()}
-            indiv_param['sources'] = indiv_param['sources'].tolist()
+            if 'sources' in indiv_param:
+                indiv_param['sources'] = indiv_param['sources'].tolist()
             observations = model.compute_individual_trajectory(timepoints[i], indiv_param)
             # Add the desired noise
             if noise_generator:

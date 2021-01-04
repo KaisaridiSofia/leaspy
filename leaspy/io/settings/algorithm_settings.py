@@ -68,6 +68,7 @@ class AlgorithmSettings:
             if k in self.parameters.keys():
                 self.parameters[k] = v
             else:
+                self.parameters[k] = v
                 warning_message = "The parameter key : >>>{0}<<< you provided is unknown".format(k)
                 warnings.warn(warning_message)
 

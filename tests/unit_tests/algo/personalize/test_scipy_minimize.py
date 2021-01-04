@@ -15,7 +15,7 @@ class ScipyMinimizeTest(unittest.TestCase):
         settings = AlgorithmSettings('scipy_minimize')
         algo = ScipyMinimize(settings)
 
-        self.assertEqual(algo.algo_parameters, {'n_iter': 100})
+        self.assertEqual(algo.algo_parameters, {'n_iter': 100, 'use_jacobian': False})
         self.assertEqual(algo.name, 'scipy_minimize')
         self.assertEqual(algo.seed, None)
 

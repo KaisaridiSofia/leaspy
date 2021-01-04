@@ -4,6 +4,7 @@
   "loss": "MSE",
   "initialization_method": null,
   "parameters": {
+    "use_jacobian": false,
     "n_iter": 100
   }
 }

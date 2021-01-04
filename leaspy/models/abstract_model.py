@@ -84,6 +84,28 @@ class AbstractModel:
 
         return individual_variable_name
 
+    def compute_sum_squared_per_ft_tensorized(self, data, param_ind, attribute_type=None):
+        """
+        Compute the square of the residuals per subject per feature
+
+        Parameters
+        ----------
+        data : leaspy.io.data.dataset.Dataset
+            Contains the data of the subjects, in particular the subjects' time-points and the mask (?)
+        param_ind : dict
+            Contain the individual parameters
+        attribute_type : str
+            The attribute's type
+
+        Returns
+        -------
+        torch.Tensor, shape (n_individuals,dimension)
+            Contains L2 residual for each subject and each feature
+        """
+        res: torch.FloatTensor = self.compute_individual_tensorized(data.timepoints, param_ind, attribute_type)
+        r1 = data.mask.float() * (res - data.values)  # ijk tensor (i=individuals, j=visits, k=features)
+        return torch.sum(r1 * r1, dim=1)
+
     def compute_sum_squared_tensorized(self, data, param_ind, attribute_type=None):
         """
         TODO: complete
@@ -307,31 +329,36 @@ class AbstractModel:
         attachment : torch.Tensor
             Log-likelihood ?
         """
-        res = self.compute_individual_tensorized(data.timepoints, param_ind, attribute_type)
-        mask = data.mask.float()
-        # res *= data.mask
-        if self.loss == 'MSE':
-            r1 = mask * (res - data.values)  # r1.ndim = 3 - r1.shape = [n_subjects, ??, n_features]
-            #r1[1-data.mask] = 0.0 # Set nans to 0
-            squared_sum = torch.sum(r1 * r1, dim=(1, 2))
+        if 'MSE' in self.loss:
+            # diagonal noise (squared) [same for all features if it's forced to be a scalar]
+            noise_var = self.parameters['noise_std'] * self.parameters[
+                'noise_std']  # slight perf improvement over ** 2, k tensor (or scalar tensor)
+            noise_var = noise_var.expand((1,
+                                          data.dimension)).float()  # 1,k tensor (for scalar products just after) # <!> this formula works with scalar noise as well
 
-            # noise_var = self.parameters['noise_std'] ** 2
-            noise_var = self.parameters['noise_std'] * self.parameters['noise_std']
-            attachment = 0.5 * (1. / noise_var) * squared_sum
-            attachment += torch.log(torch.sqrt(TWO_PI * noise_var)) * torch.tensor(data.nb_observations_per_individuals)
+            L2_res_per_ind_per_ft = self.compute_sum_squared_per_ft_tensorized(data, param_ind,
+                                                                               attribute_type)  # ik tensor
+
+            attachment = (0.5 / noise_var) @ L2_res_per_ind_per_ft.float().t()
+            attachment += 0.5 * torch.log(TWO_PI * noise_var) @ data.n_observations_per_ind_per_ft.float().t()
+
         elif self.loss == 'crossentropy':
-            res = torch.clamp(res, 1e-38, 1. - 1e-7) # safety before taking the log
-            neg_crossentropy = data.values * torch.log(res) + (1. - data.values) * torch.log(1. - res)
-            attachment = -torch.sum(mask * neg_crossentropy, dim=(1, 2))
-        return attachment
+            pred = self.compute_individual_tensorized(data.timepoints, param_ind, attribute_type)
+            mask = data.mask.float()
 
-    def update_model_parameters(self, data, suff_stats, burn_in_phase=True):
+            pred = torch.clamp(pred, 1e-38, 1. - 1e-7)  # safety before taking the log
+            neg_crossentropy = data.values * torch.log(pred) + (1. - data.values) * torch.log(1. - pred)
+            attachment = -torch.sum(mask * neg_crossentropy, dim=(1, 2))
+
+        return attachment.reshape((data.n_individuals,))  # 1D tensor of shape(n_individuals,)
+
+    def update_model_parameters(self, data, suff_stats, burn_in_phase=True, clusters=None):
         # Memoryless part of the algorithm
         if burn_in_phase:
-            self.update_model_parameters_burn_in(data, suff_stats)
+            self.update_model_parameters_burn_in(data, suff_stats, clusters=clusters)
         # Stochastic sufficient statistics used to update the parameters of the model
         else:
-            self.update_model_parameters_normal(data, suff_stats)
+            self.update_model_parameters_normal(data, suff_stats, clusters=clusters)
         self.attributes.update(['all'], self.parameters)
 
     def update_model_parameters_burn_in(self, data, realizations):

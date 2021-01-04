@@ -57,6 +57,8 @@ class Dataset:
         self.mask = mask
         self.n_visits = data.n_visits
         # self.n_observations = int(np.sum(mask))
+        self.n_observations_per_ind_per_ft = mask.sum(dim=1)  # 2D int tensor of shape(n_individuals,dimension)
+        self.n_observations_per_ft = self.n_observations_per_ind_per_ft.sum(dim=0)  # 1D int tensor of shape(dimension,)
         self.n_observations = int(mask.sum().item())
 
     def _construct_timepoints(self, data):

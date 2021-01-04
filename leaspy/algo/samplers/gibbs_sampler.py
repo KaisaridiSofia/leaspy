@@ -30,7 +30,7 @@ class GibbsSampler(AbstractSampler):
         self.previous_attachment = None
         self.previous_regularity = None
 
-    def sample(self, data, model, realizations, temperature_inv): #TODO is data / model / realizations supposed to be in sampler ????
+    def sample(self, data, model, realizations, temperature_inv, clusters=None): #TODO is data / model / realizations supposed to be in sampler ????
         """
         Sample either as population or individual.
         Modifies the realizations object.
@@ -41,9 +41,9 @@ class GibbsSampler(AbstractSampler):
         :return:
         """
         if self.type == 'pop':
-            self._sample_population_realizations(data, model, realizations, temperature_inv)
+            self._sample_population_realizations(data, model, realizations, temperature_inv, clusters=clusters)
         else:
-            self._sample_individual_realizations(data, model, realizations, temperature_inv)
+            self._sample_individual_realizations(data, model, realizations, temperature_inv, clusters=clusters)
 
     def _proposal(self, val):
         """
@@ -81,7 +81,7 @@ class GibbsSampler(AbstractSampler):
         self.std = std
         self.distribution = torch.distributions.normal.Normal(loc=0.0, scale=std)
 
-    def _sample_population_realizations(self, data, model, realizations, temperature_inv):
+    def _sample_population_realizations(self, data, model, realizations, temperature_inv, clusters=None):
         """
         For each dimension (1D or 2D) of the population variable, compute current attachment and regularity.
         Propose a new value for the given dimension of the given population variable,
@@ -93,6 +93,9 @@ class GibbsSampler(AbstractSampler):
         :param temperature_inv:
         :return:
         """
+        if clusters is None: # to keep computations fluid we set clusters to neutral scalar
+            clusters = 1.
+
         realization = realizations[self.name]
         shape_current_variable = realization.shape
         index = [e for e in itertools.product(*[range(s) for s in shape_current_variable])]
@@ -106,7 +109,7 @@ class GibbsSampler(AbstractSampler):
             # previous_regularity = model.compute_regularity_realization(realization).sum()
             if self.previous_attachment is None:
                 assert self.previous_regularity is None
-                self.previous_attachment = model.compute_individual_attachment_tensorized_mcmc(data, realizations).sum()
+                self.previous_attachment = (clusters * model.compute_individual_attachment_tensorized_mcmc(data, realizations)).sum()
                 self.previous_regularity = model.compute_regularity_realization(realization).sum()
 
             # Keep previous realizations and sample new ones
@@ -118,7 +121,7 @@ class GibbsSampler(AbstractSampler):
             model.update_MCMC_toolbox([self.name], realizations)
 
             # Compute the attachment and regularity
-            new_attachment = model.compute_individual_attachment_tensorized_mcmc(data, realizations).sum()
+            new_attachment = (clusters * model.compute_individual_attachment_tensorized_mcmc(data, realizations)).sum()
             new_regularity = model.compute_regularity_realization(realization).sum()
 
             alpha = torch.exp(-((new_regularity - self.previous_regularity) * temperature_inv +
@@ -138,14 +141,13 @@ class GibbsSampler(AbstractSampler):
             else:
                 self.previous_attachment = new_attachment
                 self.previous_regularity = new_regularity
-
         self._update_acceptation_rate(torch.Tensor([accepted_array]))
         self._update_std()
 
         # Reset previous attachment and regularity !!!
         self.previous_attachment = self.previous_regularity = None
 
-    def _sample_individual_realizations(self, data, model, realizations, temperature_inv):
+    def _sample_individual_realizations(self, data, model, realizations, temperature_inv, clusters=None):
         """
         For each indivual variable, compute current patient-batched attachment and regularity.
         Propose a new value for the individual variable,
@@ -158,6 +160,17 @@ class GibbsSampler(AbstractSampler):
         :return:
         """
         # Compute the attachment and regularity
+
+        if clusters is None:
+            clusters = 1.
+            weight = 1.
+        else:
+            if clusters.sum() != 0.:
+                S_inv = 1. / clusters.sum()
+            else:
+                S_inv = 0.
+            weight = float(data.n_individuals) * S_inv
+
         realization = realizations[self.name]
 
         previous_attachment = model.compute_individual_attachment_tensorized_mcmc(data, realizations)
@@ -179,7 +192,7 @@ class GibbsSampler(AbstractSampler):
                             (new_attachment - previous_attachment)))  # alpha.ndim = 1
 
         accepted = self._group_metropolis_step(alpha)  # accepted.ndim = 1
-        self._update_acceptation_rate(accepted)
+        self._update_acceptation_rate(weight * clusters * accepted)
         self._update_std()
         ##### PEUT ETRE PB DE SHAPE
         accepted = accepted.unsqueeze(1)
