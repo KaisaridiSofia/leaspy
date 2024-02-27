@@ -260,11 +260,21 @@ class Data(Iterable):
                                                    index=ix_tpts))
             if self.event_time_name:
                 ix_tpts = pd.Index([individual_data.idx], name='ID')
-                assert(individual_data.event_time.count(individual_data.event_time[0]) == len(individual_data.event_time))
-                assert (np.array(individual_data.event_bool).sum() == 1)
-                type_to_concat.append(pd.DataFrame([[individual_data.event_time[0], individual_data.event_bool.index(True)+1]],
-                                                   columns=[self.event_time_name, self.event_bool_name],
-                                                   index=ix_tpts))
+                if len(np.unique(individual_data.event_time)) != 1:
+                    raise LeaspyInputError(
+                    f"Individual {individual_data.idx} has multiple time at event only one is accepted")
+                
+                if individual_data.event_bool.sum() == 1:
+                    df_event = pd.DataFrame(data=[[individual_data.event_time[0], np.where(individual_data.event_bool==True)[0][0]+1]],
+                                              index=ix_tpts, columns=[self.event_time_name, self.event_bool_name])
+                elif individual_data.event_bool.sum() == 0:
+                    df_event = pd.DataFrame(data=[[individual_data.event_time[0], 0]],
+                                            index=ix_tpts, columns=[self.event_time_name, self.event_bool_name])
+                else:
+                    raise LeaspyInputError(
+                        f"Individual {individual_data.idx} should contain maximum one observed event")
+
+                type_to_concat.append(df_event)
             if len(type_to_concat) == 1:
                 return type_to_concat[0]
             else:

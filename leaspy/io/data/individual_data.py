@@ -36,8 +36,8 @@ class IndividualData:
         self.idx: IDType = idx
         self.timepoints: np.ndarray = None
         self.observations: np.ndarray = None
-        self.event_time: float = None
-        self.event_bool: Optional[int] = None
+        self.event_time: Optional[np.ndarray] = None
+        self.event_bool: Optional[np.ndarray] = None
         self.cofactors: Dict[FeatureType, Any] = {}
 
     def add_observations(self, timepoints: List[float], observations: List[List[float]]) -> None:
@@ -75,7 +75,7 @@ class IndividualData:
                     self.observations[index:]
                 ])
 
-    def add_event(self, event_time: float, event_bool: bool) -> None:
+    def add_event(self, event_time: list, event_bool: list) -> None:
         """
         Include event time and associated censoring bool
 
@@ -87,8 +87,8 @@ class IndividualData:
             0 if censored (not observed) and 1 if observed
 
         """
-        self.event_time = event_time
-        self.event_bool = event_bool
+        self.event_time = np.ndarray(event_time)
+        self.event_bool = np.ndarray(event_bool)
 
     def add_cofactors(self, d: Dict[FeatureType, Any]) -> None:
         """
