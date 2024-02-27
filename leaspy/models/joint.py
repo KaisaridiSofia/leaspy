@@ -1,6 +1,6 @@
 import torch
 from lifelines import WeibullFitter
-
+from leaspy.utils.weighted_tensor import WeightedTensor
 from leaspy.models.multivariate import LogisticMultivariateModel
 from leaspy.io.data.dataset import Dataset
 from leaspy.utils.docs import doc_with_super  # doc_with_
@@ -319,7 +319,7 @@ class JointModel(LogisticMultivariateModel):
         local_state = self.state.clone(disable_auto_fork=True)
 
         self._put_data_timepoints(local_state, timepoints)
-        local_state.put('event', (timepoints.T, torch.zeros(timepoints.shape).bool()))
+        local_state.put('event', WeightedTensor(timepoints.T, torch.zeros(timepoints.T.shape).bool()))
 
         for ip, ip_v in individual_parameters.items():
             local_state[ip] = ip_v

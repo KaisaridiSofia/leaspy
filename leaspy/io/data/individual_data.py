@@ -87,8 +87,8 @@ class IndividualData:
             0 if censored (not observed) and 1 if observed
 
         """
-        self.event_time = np.ndarray(event_time)
-        self.event_bool = np.ndarray(event_bool)
+        self.event_time = np.array(event_time)
+        self.event_bool = np.array(event_bool)
 
     def add_cofactors(self, d: Dict[FeatureType, Any]) -> None:
         """
