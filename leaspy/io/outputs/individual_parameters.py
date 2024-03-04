@@ -354,7 +354,7 @@ class IndividualParameters:
         ip = IndividualParameters()
 
         for idx, row in df.iterrows():
-            i_d = {param: row[col].tolist() if isinstance(col, list) else row[col]
+            i_d = {param: np.array(row[col].tolist()) if isinstance(col, list) else np.array([row[col]])
                    for param, col in final_names.items()}
             ip.add_individual_parameters(idx, i_d)
 
