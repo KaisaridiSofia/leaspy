@@ -2,6 +2,7 @@ import torch
 
 from leaspy.models.base import InitializationMethod
 from leaspy.models.abstract_multivariate_model import AbstractMultivariateModel
+from leaspy.models.multivariate import LogisticMultivariateInitializationMixin
 from leaspy.io.data.dataset import Dataset
 from leaspy.utils.weighted_tensor import unsqueeze_right, WeightedTensor, TensorOrWeightedTensor
 from leaspy.variables.specs import (
@@ -16,7 +17,7 @@ from leaspy.utils.functional import OrthoBasis
 from leaspy.variables.distributions import Normal
 
 
-class MultivariateParallelModel(AbstractMultivariateModel):
+class MultivariateParallelModel(LogisticMultivariateInitializationMixin, AbstractMultivariateModel):
     """
     Logistic model for multiple variables of interest, imposing same average
     evolution pace for all variables (logistic curves are only time-shifted).
@@ -36,7 +37,7 @@ class MultivariateParallelModel(AbstractMultivariateModel):
         dataset: Dataset,
         method: InitializationMethod,
     ) -> VariablesValuesRO:
-        parameters = super()._compute_initial_values_for_model_parameters(dataset, method)
+        parameters = super()._compute_initial_values_for_model_parameters(dataset, method=method)
         parameters["log_g_mean"] = parameters["log_g_mean"].mean()
         parameters["xi_mean"] = parameters["log_v0_mean"].mean()
         del parameters["log_v0_mean"]
