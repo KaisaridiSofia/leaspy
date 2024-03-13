@@ -531,6 +531,25 @@ class AbstractWeibullRightCensoredFamily(StatelessDistributionFamily):
         return log_hazard
 
     @classmethod
+    def compute_hazard(
+            cls,
+            x: WeightedTensor,
+            nu: torch.Tensor,
+            rho: torch.Tensor,
+            xi: torch.Tensor,
+            tau: torch.Tensor,
+            *params: torch.Tensor,
+    ) -> torch.Tensor:
+        event_reparametrized_time, _, nu_reparametrized = cls._extract_reparametrized_parameters(x, nu, rho, xi, tau, *params)
+        # Hazard neg log-likelihood only for patient with event not censored
+        hazard = torch.where(
+            event_reparametrized_time > 0,
+            (rho / nu_reparametrized) * ((event_reparametrized_time / nu_reparametrized) ** (rho - 1.)),
+            0.
+        )
+        return hazard
+
+    @classmethod
     def compute_log_survival(
             cls,
             x: torch.Tensor,
@@ -542,6 +561,37 @@ class AbstractWeibullRightCensoredFamily(StatelessDistributionFamily):
     ) -> torch.Tensor:
         event_reparametrized_time, _, nu_reparametrized = cls._extract_reparametrized_parameters(x, nu, rho, xi, tau, *params)
         return -(torch.clamp(event_reparametrized_time, min=0.) / nu_reparametrized) ** rho
+
+    @classmethod
+    def compute_cumulative_incidence_function(
+            cls,
+            x: torch.Tensor,
+            nu: torch.Tensor,
+            rho: torch.Tensor,
+            xi: torch.Tensor,
+            tau: torch.Tensor,
+            precision: float = 0.01,
+            *params: torch.Tensor,
+    ) -> torch.Tensor:
+        nb_events = nu.shape[0]
+
+        if nb_events == 1:
+            # when there is only one event, CIF = 1-S
+            return 1 - torch.exp(cls.compute_log_survival(x, nu, rho, xi, tau, *params))
+        else:
+            def get_incidence(t, idx_evt):
+                time = WeightedTensor(torch.arange(0, t, precision, dtype=float).expand(nb_events,-1).T)
+                log_survival = cls.compute_log_survival(time, nu, rho, xi, tau, *params)
+                hazard = cls.compute_hazard(time, nu, rho, xi, tau, *params)
+                total_survival = torch.exp(log_survival.sum(axis = 1).expand(nb_events,-1).T)
+                incidence = total_survival*hazard
+                return torch.trapezoid(incidence.T, time.value.T)[idx_evt]
+
+            list_to_cat = [torch.clone(x.value).apply_(lambda t: get_incidence(t, i)).T for i in range(nb_events)]
+            res = torch.cat(list_to_cat).T
+
+            return res
+
 
     @staticmethod
     def _extract_reparametrized_event(event_time: torch.Tensor, tau: torch.Tensor) -> torch.Tensor:
