@@ -165,8 +165,8 @@ class Dataset:
             self.timepoints[i, 0:nb_vis] = torch.tensor(data[i].timepoints)
 
     def _construct_events(self, data: Data):
-        self.event_time = torch.tensor([_.event_time for _ in data], dtype=torch.double)
-        self.event_bool = torch.tensor([_.event_bool for _ in data], dtype=torch.bool)
+        self.event_time = torch.tensor(np.array([_.event_time for _ in data]), dtype=torch.double)
+        self.event_bool = torch.tensor(np.array([_.event_bool for _ in data]), dtype=torch.bool)
 
     def _compute_L2_norm(self):
         self.L2_norm_per_ft = torch.sum(self.mask.float() * self.values * self.values,
