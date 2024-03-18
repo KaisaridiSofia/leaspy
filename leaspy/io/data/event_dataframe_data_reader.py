@@ -28,12 +28,13 @@ class EventDataframeDataReader(AbstractDataframeDataReader):
 
     def __init__(self, *,
                  event_time_name: str = 'EVENT_TIME',
-                 event_bool_name: str = 'EVENT_BOOL'):
+                 event_bool_name: str = 'EVENT_BOOL',
+                 nb_events: int = None):
 
         super().__init__()
         self.event_time_name = event_time_name
         self.event_bool_name = event_bool_name
-        self.nb_events = None
+        self.nb_events = nb_events
 
     ######################################################
     #               ABSTRACT METHODS IMPLEMENTED
@@ -123,9 +124,14 @@ class EventDataframeDataReader(AbstractDataframeDataReader):
 
         nb_events = df_event[self.event_bool_name].max()
         for i in range(nb_events+1):
-            if df[self.event_bool_name].isin([i]).sum()==0:
+            if (nb_events==0) and (not self.nb_events):
                 warnings.warn(f'There are no event for event {i}')
-        self.nb_events = nb_events
+            elif nb_events==0:
+                warnings.warn(f'There are no event for event {i} but you set {self.nb_events} it must be prediction data')
+            elif self.nb_events != nb_events:
+                raise LeaspyDataInputError('There are no event please check your data or put the number of events')
+
+
 
         return df_event
 

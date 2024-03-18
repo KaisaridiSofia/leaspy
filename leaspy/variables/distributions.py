@@ -390,6 +390,7 @@ class NormalFamily(StatelessDistributionFamilyFromTorchDistribution):
 
 class AbstractWeibullRightCensoredFamily(StatelessDistributionFamily):
     dist_weibull: ClassVar = torch.distributions.weibull.Weibull
+    precision = 0.01
 
     @classmethod
     def validate_parameters(cls, *params: Any) -> Tuple[torch.Tensor, ...]:
@@ -570,7 +571,6 @@ class AbstractWeibullRightCensoredFamily(StatelessDistributionFamily):
             rho: torch.Tensor,
             xi: torch.Tensor,
             tau: torch.Tensor,
-            precision: float = 0.01,
             *params: torch.Tensor,
     ) -> torch.Tensor:
         nb_events = nu.shape[0]
@@ -580,7 +580,7 @@ class AbstractWeibullRightCensoredFamily(StatelessDistributionFamily):
             return 1 - torch.exp(cls.compute_log_survival(x, nu, rho, xi, tau, *params))
         else:
             def get_incidence(t, idx_evt):
-                time = WeightedTensor(torch.arange(0, t, precision, dtype=float).expand(nb_events,-1).T)
+                time = WeightedTensor(torch.arange(0, t, cls.precision, dtype=float).expand(nb_events,-1).T)
                 log_survival = cls.compute_log_survival(time, nu, rho, xi, tau, *params)
                 hazard = cls.compute_hazard(time, nu, rho, xi, tau, *params)
                 total_survival = torch.exp(log_survival.sum(axis = 1).expand(nb_events,-1).T)
