@@ -390,7 +390,7 @@ class NormalFamily(StatelessDistributionFamilyFromTorchDistribution):
 
 class AbstractWeibullRightCensoredFamily(StatelessDistributionFamily):
     dist_weibull: ClassVar = torch.distributions.weibull.Weibull
-    precision = 0.01
+    precision = 0.0001
 
     @classmethod
     def validate_parameters(cls, *params: Any) -> Tuple[torch.Tensor, ...]:
@@ -564,7 +564,7 @@ class AbstractWeibullRightCensoredFamily(StatelessDistributionFamily):
         return -(torch.clamp(event_reparametrized_time, min=0.) / nu_reparametrized) ** rho
 
     @classmethod
-    def compute_cumulative_incidence_function(
+    def compute_predictions(
             cls,
             x: torch.Tensor,
             nu: torch.Tensor,
@@ -575,22 +575,35 @@ class AbstractWeibullRightCensoredFamily(StatelessDistributionFamily):
     ) -> torch.Tensor:
         nb_events = nu.shape[0]
 
+        # consider that the first time to predict was the last visit and is a reference point
+        # and compute the survival S0
+        init_log_survival = cls.compute_log_survival(WeightedTensor(x.value.min()), nu, rho, xi, tau, *params)
+        init_survival = torch.exp(init_log_survival.sum(axis=1).expand(nb_events, -1).T)
+
         if nb_events == 1:
-            # when there is only one event, CIF = 1-S
-            return 1 - torch.exp(cls.compute_log_survival(x, nu, rho, xi, tau, *params))
+            # when there is only one event, we are interested in the corrected survival S/S0 (Rizopoulos, 2012, p173)
+            return torch.exp(cls.compute_log_survival(x, nu, rho, xi, tau, *params)) / init_survival
         else:
-            def get_incidence(t, idx_evt):
-                time = WeightedTensor(torch.arange(0, t, cls.precision, dtype=float).expand(nb_events,-1).T)
-                log_survival = cls.compute_log_survival(time, nu, rho, xi, tau, *params)
-                hazard = cls.compute_hazard(time, nu, rho, xi, tau, *params)
-                total_survival = torch.exp(log_survival.sum(axis = 1).expand(nb_events,-1).T)
-                incidence = total_survival*hazard
-                return torch.trapezoid(incidence.T, time.value.T)[idx_evt]
+            # When there are multiple event we are interested in the cumulative incidence corrected: CIF/S0
+            # see (Andrinopoulou, 2015)
+            # Compute for all the possible points till the max
+            time = WeightedTensor(
+                torch.arange(float(tau), x.value.max(), cls.precision, dtype=float).expand(nb_events, -1).T)
+            log_survival = cls.compute_log_survival(time, nu, rho, xi, tau, *params)
+            hazard = cls.compute_hazard(time, nu, rho, xi, tau, *params)
+            total_survival = torch.exp(log_survival.sum(axis=1).expand(nb_events, -1).T)
+            incidence = total_survival * hazard
 
-            list_to_cat = [torch.clone(x.value).apply_(lambda t: get_incidence(t, i)).T for i in range(nb_events)]
+            def get_cum_incidence(t, time_ix, incidence_ix):
+                # t<tau then the result is 0 as survival is defined to be 1
+                index = (time_ix * (time_ix <= t)).argmax() + 1
+                return torch.trapezoid(incidence_ix[:index], time_ix[:index])
+
+            list_to_cat = [
+                torch.clone(x.value).apply_(lambda t: get_cum_incidence(t, time.value.T[i], incidence.T[i])).T for i in
+                range(nb_events)]
             res = torch.cat(list_to_cat).T
-
-            return res
+            return res / init_survival
 
 
     @staticmethod

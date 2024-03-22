@@ -328,7 +328,7 @@ class JointModel(LogisticMultivariateModel):
         return torch.cat(
             (
                 local_state["model"],
-                local_state["cumulative_incidence_function_event"].expand((1, timepoints.shape[1], self.nb_events))
+                local_state["predictions_event"].expand((1, timepoints.shape[1], self.nb_events))
             ),
             2
         )

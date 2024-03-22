@@ -125,9 +125,12 @@ class EventDataframeDataReader(AbstractDataframeDataReader):
         nb_events = df_event[self.event_bool_name].max()
         for i in range(nb_events+1):
             if (nb_events==0) and (not self.nb_events):
-                warnings.warn(f'There are no event for event {i}')
+                raise LeaspyDataInputError(
+                    f'There are no event for event {i} please check your data or put the number of events')
             elif nb_events==0:
                 warnings.warn(f'There are no event for event {i} but you set {self.nb_events} it must be prediction data')
+            elif (not self.nb_events):
+                self.nb_events = nb_events
             elif self.nb_events != nb_events:
                 raise LeaspyDataInputError('There are no event please check your data or put the number of events')
 
