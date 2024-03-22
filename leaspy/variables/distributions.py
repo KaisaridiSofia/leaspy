@@ -588,7 +588,8 @@ class AbstractWeibullRightCensoredFamily(StatelessDistributionFamily):
             # see (Andrinopoulou, 2015)
             # Compute for all the possible points till the max
             time = WeightedTensor(
-                torch.arange(float(tau), x.value.max(), cls.precision, dtype=float).expand(nb_events, -1).T)
+                torch.arange(float(tau), max(float(tau) + cls.precision, x.value.max()), cls.precision,
+                             dtype=float).expand(nb_events, -1).T)
             log_survival = cls.compute_log_survival(time, nu, rho, xi, tau, *params)
             hazard = cls.compute_hazard(time, nu, rho, xi, tau, *params)
             total_survival = torch.exp(log_survival.sum(axis=1).expand(nb_events, -1).T)
