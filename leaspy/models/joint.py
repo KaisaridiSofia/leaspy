@@ -87,8 +87,8 @@ class JointModel(LogisticMultivariateModel):
 
 
         variables_to_track = [
-            "n_log_nu_mean",
-            "log_rho_mean",
+            "nu",
+            "rho",
             "nll_attach_y",
             "nll_attach_event",
         ]
