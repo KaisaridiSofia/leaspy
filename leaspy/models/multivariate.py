@@ -56,7 +56,7 @@ class MultivariateModel(AbstractMultivariateModel):
     def __init__(self, name: str, variables_to_track: Optional[Iterable[str]] = None, **kwargs):
         super().__init__(name, **kwargs)
 
-        variables_to_track = variables_to_track or (
+        default_variables_to_track = variables_to_track or [
             "g",
             "v0",
             "noise_std",
