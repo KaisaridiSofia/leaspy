@@ -603,8 +603,8 @@ class AbstractWeibullRightCensoredFamily(StatelessDistributionFamily):
         *params: torch.Tensor, 
     ) -> WeightedTensor:
         """Compute survival neg log-likelihood."""
-        log_survival = cls.compute_log_survival(x, nu, rho, xi, tau)
-        log_hazard = cls.compute_log_likelihood_hazard(x, nu, rho, xi, tau)
+        log_survival = cls.compute_log_survival(x, nu, rho, xi, tau, *params)
+        log_hazard = cls.compute_log_likelihood_hazard(x, nu, rho, xi, tau, *params)
 
         return WeightedTensor(-1 * (log_survival + log_hazard))
 
