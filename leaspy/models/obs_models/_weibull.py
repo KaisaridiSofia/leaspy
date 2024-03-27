@@ -48,7 +48,7 @@ class AbstractWeibullRightCensoredObservationModel(ObservationModel):
         specs = super().get_variables_specs(named_attach_vars)
 
         specs[f"predictions_{self.name}"] = LinkedVariable(
-            self.dist._get_func("compute_predictions", self.name)
+            self.dist.get_func("compute_predictions", self.name)
         )
 
         return specs
