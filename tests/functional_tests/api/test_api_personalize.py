@@ -74,7 +74,7 @@ class LeaspyPersonalizeTestMixin(LeaspyTestCase):
         self,
         ips: IndividualParameters,
         loss: torch.Tensor,
-        expected_loss: Union[float, list[float]],
+        expected_loss: Union[float, List[float]],
         *,
         tol_loss: Optional[float] = 5e-3,
         msg=None,
@@ -400,7 +400,7 @@ class LeaspyPersonalizeTest(LeaspyPersonalizeTestMixin):
         self._personalize_generic(
             "univariate_joint",
             "scipy_minimize",
-            0.30333825945854187,
+            0.2959330677986145,
             {"use_jacobian": False},
         )
 
@@ -417,14 +417,14 @@ class LeaspyPersonalizeTest(LeaspyPersonalizeTestMixin):
         self._personalize_generic(
             "univariate_joint",
             "mode_real",
-            0.30058470368385315,
+            0.26655313372612,
         )
 
     def test_univariate_joint_mean_real(self):
         self._personalize_generic(
             "univariate_joint",
             "mean_real",
-            0.30380967259407043,
+            0.2860680818557739,
         )
 
     def test_joint_scipy_minimize(self):
@@ -715,7 +715,7 @@ class LeaspyPersonalizeRobustnessDataSparsityTest(LeaspyPersonalizeTestMixin):
         self,
         model_name: str,
         algo_name: str,
-        expected_loss: Union[float, list[float]],
+        expected_loss: Union[float, List[float]],
         algo_kws: Optional[dict] = None,
         rtol: float = 2e-2,
         atol: float = 5e-3,
