@@ -441,11 +441,17 @@ class AbstractWeibullRightCensoredFamily(StatelessDistributionFamily):
         torch.Tensor :
             The value of the distribution's mean.
         """
-        return cls.dist_weibull(cls._extract_reparametrized_nu(nu, xi), rho).mean + tau
+        return cls.dist_weibull(cls._extract_reparametrized_nu(nu,rho,xi,tau, *params), rho).mean + tau
 
     @staticmethod
     @abstractmethod
-    def _extract_reparametrized_nu(nu: torch.Tensor, xi: torch.Tensor) -> torch.Tensor:
+    def _extract_reparametrized_nu(
+        nu: torch.Tensor,
+        rho: torch.Tensor,
+        xi: torch.Tensor,
+        tau: torch.Tensor,
+        *params: torch.Tensor,
+    ) -> torch.Tensor:
         """Reparametrization of nu using individual parameter xi."""
 
     @classmethod
@@ -471,7 +477,7 @@ class AbstractWeibullRightCensoredFamily(StatelessDistributionFamily):
         torch.Tensor :
             The value of the distribution's standard deviation.
         """
-        return cls.dist_weibull(cls._extract_reparametrized_nu(nu,rho,xi,tau), rho).stddev
+        return cls.dist_weibull(cls._extract_reparametrized_nu(nu,rho,xi,tau, *params), rho).stddev
 
     @classmethod
     def _extract_reparametrized_parameters(
@@ -672,8 +678,8 @@ class AbstractWeibullRightCensoredFamily(StatelessDistributionFamily):
         *params: torch.Tensor,
     ) -> WeightedTensor:
         """Negative log-likelihood of value, given distribution parameters."""
-        log_survival = cls.compute_log_survival(x, nu, rho, xi, tau)
-        hazard = cls.compute_hazard(x, nu, rho, xi, tau)
+        log_survival = cls.compute_log_survival(x, nu, rho, xi, tau, *params)
+        hazard = cls.compute_hazard(x, nu, rho, xi, tau, *params)
         return WeightedTensor(torch.exp(log_survival)*hazard)
 
 class WeibullRightCensoredFamily(AbstractWeibullRightCensoredFamily):
