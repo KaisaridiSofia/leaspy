@@ -50,7 +50,6 @@ class AbstractWeibullRightCensoredObservationModel(ObservationModel):
         specs[f"predictions_{self.name}"] = LinkedVariable(
             self.dist.get_func("compute_predictions", self.name)
         )
-
         return specs
 
 
