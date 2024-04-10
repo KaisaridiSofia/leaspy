@@ -405,13 +405,12 @@ class State(MutableMapping):
         """
         output_folder = Path(output_folder)
         for variable in self._tracked_variables:
-            dict_value = self._get_value_as_dict_of_list_of_floats(variable)
-            for key, value in dict_value.items():
-                if iteration != None:
-                    value.insert(0, iteration)
-                with open(output_folder / f"{key}.csv", 'a', newline='') as filename:
-                        writer = csv.writer(filename)
-                        writer.writerow(value)
+            value = self._get_value_as_list_of_floats(variable)
+            if iteration != None:
+                value.insert(0, iteration)
+            with open(output_folder / f"{variable}.csv", 'a', newline='') as filename:
+                writer = csv.writer(filename)
+                writer.writerow(value)
 
     def _get_value_as_list_of_floats(self, variable_name: str) -> List:
         """Return the value of the given variable as a list of floats."""
