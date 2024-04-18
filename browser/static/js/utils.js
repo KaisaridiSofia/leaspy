@@ -9,6 +9,9 @@ let setTriggerValues = (individualParameters) => {
   for(var i=0; i<model['source_dimension']; ++i) {
     document.getElementById('geom_'+i).value = sources[i];
   };
+
+  var nemnem = individualParameters['nemnem'];
+  document.getElementById('nemnem').value = nemnem;
 }
 
 let resetTriggerValues = () => {
@@ -18,7 +21,8 @@ let resetTriggerValues = () => {
   var individualParameters = {
     'xi': 0,
     'tau': 0,
-    'sources': new Array(model['source_dimension']).fill(0)
+    'sources': new Array(model['source_dimension']).fill(0),
+    'nemnem': 0,
   }
   setTriggerValues(individualParameters);
   changeTriggerText(individualParameters);
@@ -28,6 +32,7 @@ let getTriggerValues = () => {
   var values = {
     'xi': parseFloat(document.getElementById('acc_factor').value),
     'tau': parseFloat(document.getElementById('time_shift').value),
+    'nemnem': parseFloat(document.getElementById('nemnem').value),
     'sources': []
   }
 
@@ -50,6 +55,8 @@ let changeTriggerText = (indivParameters) => {
   for(var i=0; i<model['source_dimension']; ++i) {
     document.getElementById('geom_'+i).previousSibling.innerHTML = 'Geometric pattern ' + (i+1) + ': ' + sources[i].toFixed(DECIMALS_SOURCES);
   }
+
+  document.getElementById('nemnem').previousSibling.innerHTML = 'Covariate ' + ':' + indivParameters['nemnem'].toFixed(1);
 }
 
 let onTriggerChange = () => {

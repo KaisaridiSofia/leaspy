@@ -130,6 +130,9 @@ let initTriggers = (model_p) => {
     var spaceCol = triggerCol('Geometric pattern '+ (i+1), 'geom_'+i, 0, min, max, step);
     triggersCol.appendChild(spaceCol);
   }
+
+  var testCol = triggerCol('Nemo', 'nemnem', 0, -2, 2, 0.1);
+  triggersCol.appendChild(testCol);
 }
 
 let clearPage = () => {
