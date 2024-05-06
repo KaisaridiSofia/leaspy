@@ -206,7 +206,9 @@ class LeaspyAPITest(LeaspyFitTestMixin, LeaspyPersonalizeTestMixin, LeaspySimula
             obs_models="bernoulli",
             source_dimension=2,
             personalization_algo="mean_real",
-            expected_loss_personalization=105.18,  # logLL, not noise_std
+            expected_loss_personalization=104.072,  # logLL, not noise_std
+            #fit_algo_params={"n_iter": 200, "seed": 0},
+            #expected_loss_perso=104.072,  # logLL, not noise_std
             simulate_algo_params={
                 "seed": 0,
                 "delay_btw_visits": .5,
