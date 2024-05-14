@@ -128,10 +128,22 @@ let initTriggers = (model_p) => {
     var max =  N_SOURCES_STD * param['sources_std'];
     var step = Number(((max - min) / N_SOURCES_STEPS).toFixed(DECIMALS_SOURCES));
     var spaceCol = triggerCol('Geometric pattern '+ (i+1), 'geom_'+i, 0, min, max, step);
-    triggersCol.appendChild(spaceCol);
+    // triggersCol.appendChild(spaceCol);
   }
 
-  var testCol = triggerCol('Nemo', 'nemnem', 0, -2, 2, 0.1);
+  var testCol = triggerCol('PRS Colon Cancer', 'prs_cc', 0, -2, 2, 0.1);
+  triggersCol.appendChild(testCol);
+  var testCol = triggerCol('PRS Depression', 'prs_dep', 0, -2, 2, 0.1);
+  triggersCol.appendChild(testCol);
+  var testCol = triggerCol('PRS Diabetes', 'prs_diab', 0, -2, 2, 0.1);
+  triggersCol.appendChild(testCol);
+  var testCol = triggerCol('PRS Hypertension', 'prs_hyp', 0, -2, 2, 0.1);
+  triggersCol.appendChild(testCol);
+  var testCol = triggerCol('PRS LDL Cholesterol', 'prs_ldl', 0, -2, 2, 0.1);
+  triggersCol.appendChild(testCol);
+  var testCol = triggerCol('PRS AD', 'prs_ad', 0, -2, 2, 0.1);
+  triggersCol.appendChild(testCol);
+  var testCol = triggerCol('PRS Hearing Loss', 'prs_hl', 0, -2, 2, 0.1);
   triggersCol.appendChild(testCol);
 }
 

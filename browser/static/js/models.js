@@ -2,7 +2,7 @@ let compute_values = (ages, model_parameters, individual_parameters) => {
   if(model_parameters['name'] == 'logistic_parallel') {
     return compute_logistic_parallel(ages, model_parameters['parameters'], individual_parameters)
   } else if(model_parameters['name'] == 'logistic' || model_parameters['name'] == 'univariate_logistic') {
-    return compute_logistic(ages, model_parameters['parameters'], individual_parameters, model_parameters)
+    return compute_logistic_covariates(ages, model_parameters['parameters'], individual_parameters, model_parameters)
   } else if(model_parameters['name'] == 'linear' || model_parameters['name'] == 'univariate_linear') {
     return compute_linear(ages, model_parameters['parameters'], individual_parameters)
   } else {
@@ -168,30 +168,48 @@ let compute_logistic = (ages, parameters, individual_parameters, model) => {
   return outputs;
 }
 
+function transpose(matrix) {
+  return matrix[0].map((col, i) => matrix.map(row => row[i]));
+}
+
 let compute_logistic_covariates = (ages, parameters, individual_parameters, model) => {
-  // Specific types of models
-  var univariate = !('v0' in parameters)
+  //Specific types of models /
+  var univariate = false
   var is_ordinal = 'noise_model' in model && model['noise_model'].startsWith('ordinal')
 
   // Model parameters
-  var t0 = parameters['tau_mean']
-  var log_g = parameters['g']
+  var t0 = parameters['link_t_mean']
+  var log_g = parameters['link_g']
   var log_v0 = null
   var mixing_matrix = null
 
-  if (univariate) {
-    if (typeof log_g == 'number'){ log_g = [log_g] }
-    log_v0 = [parameters['xi_mean']]
-  } else {
-    log_v0 = parameters['v0']
-    mixing_matrix = parameters['mixing_matrix']
-  }
+  log_v0 = parameters['link_v0']
+  mixing_matrix = parameters['mixing_matrix']
 
   // Individual parameters
   var alpha = Math.exp(individual_parameters['xi'])
   var tau = individual_parameters['tau']
   var sources = individual_parameters['sources']
+  //var cov_value = individual_parameters['nemnem']
+  var cov_values = new Array(log_g[0].length).fill(0)
+  cov_values[0] = individual_parameters['prs_cc']
+  cov_values[1] = individual_parameters['prs_dep']
+  cov_values[2] = individual_parameters['prs_diab']
+  cov_values[3] = individual_parameters['prs_hyp']
+  cov_values[4] = individual_parameters['prs_ldl']
+  cov_values[5] = individual_parameters['prs_ad']
+  cov_values[6] = individual_parameters['prs_hl']
+
+  cov_values[7] = 1
+  console.log(cov_values)
   var space_shift = new Array(log_g.length).fill(0)
+  console.log(log_v0.length)
+  console.log(log_v0[0].length)
+
+  log_v0 = math.multiply(log_v0, cov_values)
+  log_g = math.multiply(log_g, cov_values)
+  t0 = math.multiply(t0, cov_values)
+
   if (mixing_matrix) {
     space_shift = math.multiply(mixing_matrix, sources);
   }
@@ -202,7 +220,7 @@ let compute_logistic_covariates = (ages, parameters, individual_parameters, mode
 
     var output = []
     var g_i = Math.exp(log_g[i])
-    var v_i = Math.exp(log_v0[i])
+    var v_i = Math.exp(log_v0[i])//+ cov_value)
     if (univariate) {
       var b_i = 1. // no such thing in univariate
     } else {
