@@ -91,7 +91,7 @@ class FitOutputManager():
 
         self.time = time.time()
 
-    def iteration(self, algo, data, model, realizations):
+    def iteration(self, algo, data, model, realizations, print=True):
         """
         Call methods to save state of the running computation, display statistics & plots if the current iteration
         is a multiple of periodicity_print, periodicity_plot or periodicity_save
@@ -109,7 +109,7 @@ class FitOutputManager():
         """
         iteration = algo.current_iteration
 
-        if self.periodicity_print is not None:
+        if self.periodicity_print is not None and print:
             if iteration % self.periodicity_print == 0:
                 self.print_algo_statistics(algo)
                 self.print_model_statistics(model)

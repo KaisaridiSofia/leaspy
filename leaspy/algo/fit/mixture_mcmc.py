@@ -9,6 +9,7 @@ from ..samplers.metropolis_hastings_sampler import MetropolisHastingsSampler
 from ..samplers.hmc_sampler import HMCSampler
 
 from leaspy.models.utils.initialization.model_initialization import initialize_ordinal
+from leaspy.io.logs.fit_output_manager import FitOutputManager
 
 
 class MixtureFitMCMC(AbstractAlgo):
@@ -171,13 +172,16 @@ class MixtureFitMCMC(AbstractAlgo):
         for it in range(self.algo_parameters['n_iter']):
             self.iteration(data, models, realizations)
             if self.output_manager is not None:  # TODO better this, should work with nones
-                # self.output_manager.iteration(self, data, model, realizations)
+                for i, model in enumerate(models):
+                    self.output_manager[i].iteration(self, data, model, realizations[i], print=False)
 
                 # Temporary fix
-                if it % self.output_manager.periodicity_print == 0:
+                if it % self.output_manager[0].periodicity_print == 0:
                     print(self)
                     for model in models:
                         print(model)
+                    print(self.output_manager[0].print_time())
+
             self.current_iteration += 1
 
         print("The standard deviation of the noise at the end of the calibration is ",
@@ -280,6 +284,23 @@ class MixtureFitMCMC(AbstractAlgo):
         :return:
         """
         return self.current_iteration < self.algo_parameters['n_burn_in_iter']
+
+    def set_output_manager(self, output_settings):
+        """
+        Set a FitOutputManager class object for the run of the algorithm
+
+        Parameters
+        ----------
+        output_settings: a leaspy.io.settings.outputs_settings.OutputsSettings class object
+            Contains the logs settings for the computation run (console print periodicity, plot periodicity ...)
+
+        Examples
+        --------
+        """
+        if output_settings is not None:
+            self.output_manager = []
+            for i in range(self.nb_clusters):
+                self.output_manager.append(FitOutputManager(output_settings[i]))
 
     ###########################
     ## Output

@@ -106,7 +106,13 @@ class AlgorithmSettings:
             else:
                 warnings.warn("The kwargs {} you provided is not correct".format(v))
 
-        self.logs = OutputsSettings(settings)
+        if 'nb_clusters' in self.parameters:
+            self.logs = []
+            for i in range(self.parameters["nb_clusters"]):
+                settings["path"] = path + f"_{i}"
+                self.logs.append(OutputsSettings(settings))
+        else:
+            self.logs = OutputsSettings(settings)
 
     @staticmethod
     def _check_default_settings(settings):
