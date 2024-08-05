@@ -1,4 +1,4 @@
-from . import UnivariateModel, MultivariateModel, MultivariateParallelModel
+from . import UnivariateModel, MultivariateModel, MultivariateParallelModel, MultivariateIPMixtureModel
 
 
 class ModelFactory:
@@ -12,7 +12,7 @@ class ModelFactory:
     """
 
     @staticmethod
-    def model(name):
+    def model(name, **kwargs):
         """
         Return the model object corresponding to 'name' arg - check name type and value
 
@@ -34,6 +34,8 @@ class ModelFactory:
             return UnivariateModel(name)
         elif name == 'logistic' or name == 'linear' or name == 'mixed_linear-logistic':
             return MultivariateModel(name)
+        elif name == 'logistic_mixture':
+            return MultivariateIPMixtureModel(name, **kwargs)
         elif name == 'logistic_parallel':
             return MultivariateParallelModel(name)
         else:

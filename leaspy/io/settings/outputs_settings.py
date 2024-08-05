@@ -66,7 +66,7 @@ class OutputsSettings:
         if emptiness_cdt:
             self._create_dedicated_folders(settings['path'])
         else:
-            if self._ask_user_if_erase(settings['path']):
+            if True: #self._ask_user_if_erase(settings['path']):
                 self._clean_folder(settings['path'])
                 self._create_dedicated_folders(settings['path'])
             else:

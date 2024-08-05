@@ -54,7 +54,7 @@ class AttributesLogistic(AttributesAbstract):
             return
 
         # Compute regularizer to work in the euclidean space
-        metric_normalization = self.positions.pow(2) / (1 + self.positions).pow(2)
+        metric_normalization = (1 + self.positions).pow(4) / self.positions.pow(2)
         dgamma_t0 = self.velocities * metric_normalization
 
         # Compute Q

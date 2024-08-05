@@ -3,29 +3,20 @@ import torch
 
 class AbstractSampler:
     """
-    Abstract sampler class -
+    Abstract sampler class.
 
     Attributes
     ----------
-    acceptation_temp: torch tensor
+    acceptation_temp : :class:`torch.Tensor`
         Acceptation rate for the sampler in MCMC-SAEM algorithm
         Keep the history of the last `temp_length` last steps
     name: str
-        Name of ...
+        Name of variable
     shape: tuple
-        Shape of ...
+        Shape of variable
     temp_length: int
         Deepness of the history kept in the acceptation rate `acceptation_temp`
         Length of the `acceptation_temp` torch tensor
-
-    Methods
-    -------
-    _group_metropolis_step(alpha)
-        Compute the accemptance ratio
-    _metropolis_step(alpha)
-
-    _update_acceptation_rate(accepted)
-
     """
 
     def __init__(self, info, n_patients):
@@ -54,11 +45,11 @@ class AbstractSampler:
 
         Parameters
         ----------
-        alpha : torch.Tensor
+        alpha : :class:`torch.Tensor`
 
         Returns
         -------
-        accepted : torch.Tensor
+        accepted : :class:`torch.Tensor`
             Acceptance decision (0. or 1.). The logs must be one dimensional (i.e. accepted.ndim = 1)
         """
         accepted = (torch.rand(alpha.size(0)) < alpha).float()  # TODO: change for boolean?
@@ -72,11 +63,12 @@ class AbstractSampler:
 
         Parameters
         ----------
-        alpha: torch tensor
+        alpha : :class:`torch.Tensor`
 
         Returns
         -------
-        int - acceptance decision (0 or 1)
+        int
+            acceptance decision (0 or 1)
         """
 
         accepted = 0
@@ -98,13 +90,13 @@ class AbstractSampler:
 
         Parameters
         ----------
-        accepted: torch.Tensor
+        accepted : :class:`torch.Tensor`
         """
 
         # Ad the new acceptation result
         if self.type == "pop":
             self.acceptation_temp = torch.cat(
-                [self.acceptation_temp, accepted.reshape(self.shape).unsqueeze(0)])
+                [self.acceptation_temp, accepted.reshape(self.acceptation_temp.shape[1:]).unsqueeze(0)])
         elif self.type == "ind":
             self.acceptation_temp = torch.cat(
                 [self.acceptation_temp, accepted.unsqueeze(0)])

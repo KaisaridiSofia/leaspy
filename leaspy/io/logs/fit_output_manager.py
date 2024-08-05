@@ -191,7 +191,7 @@ class FitOutputManager():
         for key, value in model_parameters.items():
 
             if value.ndim > 1:
-                if key == "betas":
+                if key in ["betas", "deltas"]:
                     model_parameters_save.pop(key)
                     for column in range(value.shape[1]):
                         model_parameters_save["{0}_{1}".format(key, column)] = value[:, column].tolist()

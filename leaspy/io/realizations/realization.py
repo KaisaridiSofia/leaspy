@@ -37,7 +37,10 @@ class Realization:
             distribution = torch.distributions.normal.Normal(loc=model.parameters["{0}_mean".format(self.name)],
                                                              scale=scale_individual * model.parameters["{0}_std".format(
                                                                  self.name)])  # TODO change later, to have low variance when initialized
-            self._tensor_realizations = distribution.sample(sample_shape=(n_individuals, *self.shape))
+            if self.name == "tau_xi":
+                self._tensor_realizations = distribution.sample(sample_shape=(n_individuals,))
+            else:
+                self._tensor_realizations = distribution.sample(sample_shape=(n_individuals, *self.shape))
 
             self.is_autograd = False
         else:

@@ -4,6 +4,7 @@ import torch
 
 from leaspy.io.realizations.collection_realization import CollectionRealization
 from leaspy.io.realizations.realization import Realization
+from leaspy.io.outputs.individual_parameters import IndividualParameters
 
 TWO_PI = 2 * math.pi
 
@@ -44,7 +45,7 @@ class AbstractModel:
         self.features = None
         self.parameters = None
         self.loss = 'MSE'  # default value, changes when a fit / personalize algo is called
-        self.distribution = torch.distributions.normal.Normal(loc=0., scale=0.)
+        self.ordinal_infos = None
 
     def load_parameters(self, parameters):
         """
@@ -84,7 +85,7 @@ class AbstractModel:
 
         return individual_variable_name
 
-    def compute_sum_squared_per_ft_tensorized(self, data, param_ind, attribute_type=None):
+    def compute_sum_squared_per_ft_tensorized(self, data, param_ind, attribute_type=None, model_values=None, **kwargs):
         """
         Compute the square of the residuals per subject per feature
 
@@ -102,11 +103,11 @@ class AbstractModel:
         torch.Tensor, shape (n_individuals,dimension)
             Contains L2 residual for each subject and each feature
         """
-        res: torch.FloatTensor = self.compute_individual_tensorized(data.timepoints, param_ind, attribute_type)
+        res: torch.FloatTensor = self.compute_individual_tensorized(data.timepoints, param_ind, attribute_type, **kwargs) if model_values is None else model_values
         r1 = data.mask.float() * (res - data.values)  # ijk tensor (i=individuals, j=visits, k=features)
-        return torch.sum(r1 * r1, dim=1)
+        return torch.sum(r1 * r1, dim=-2)
 
-    def compute_sum_squared_tensorized(self, data, param_ind, attribute_type=None):
+    def compute_sum_squared_tensorized(self, data, param_ind, attribute_type=None, model_values=None, **kwargs):
         """
         TODO: complete
         Compute the square of the residuals. (?) from one subject? Several subjects? All subject?
@@ -125,8 +126,8 @@ class AbstractModel:
         torch.Tensor
             Contain one residuals for each subject? Visit? Sub-score?
         """
-        res: torch.FloatTensor = self.compute_individual_tensorized(data.timepoints, param_ind, attribute_type)
-        return torch.sum((res * data.mask.float() - data.values) ** 2, dim=(1, 2))
+        res: torch.FloatTensor = self.compute_individual_tensorized(data.timepoints, param_ind, attribute_type, **kwargs) if model_values is None else model_values
+        return torch.sum((res * data.mask.float() - data.values) ** 2, dim=(-1, -2))
 
     def audit_individual_parameters(self, ips):
         """
@@ -289,10 +290,10 @@ class AbstractModel:
         # Compute the individual trajectory
         return self.compute_individual_tensorized(timepoints, individual_parameters)
 
-    def compute_individual_tensorized(self, timepoints, individual_parameters, attribute_type=None):
+    def compute_individual_tensorized(self, timepoints, individual_parameters, attribute_type=None, **kwargs):
         return NotImplementedError
 
-    def compute_individual_attachment_tensorized_mcmc(self, data, realizations):
+    def compute_individual_attachment_tensorized_mcmc(self, data, realizations, model_values=None, **kwargs):
         """
         TODO: complete
         Compute attachment of all subjects? One subject? One visit?
@@ -309,10 +310,10 @@ class AbstractModel:
             The subject attachment (?)
         """
         param_ind = self.get_param_from_real(realizations)
-        attachment = self.compute_individual_attachment_tensorized(data, param_ind, attribute_type='MCMC')
+        attachment = self.compute_individual_attachment_tensorized(data, param_ind, attribute_type='MCMC', model_values=model_values, **kwargs)
         return attachment
 
-    def compute_individual_attachment_tensorized(self, data, param_ind, attribute_type):
+    def compute_individual_attachment_tensorized(self, data, param_ind, attribute_type, model_values=None, **kwargs):
         """
         TODO: complete
         Compute attachment of all subjects? One subject? One visit?
@@ -337,20 +338,47 @@ class AbstractModel:
                                           data.dimension)).float()  # 1,k tensor (for scalar products just after) # <!> this formula works with scalar noise as well
 
             L2_res_per_ind_per_ft = self.compute_sum_squared_per_ft_tensorized(data, param_ind,
-                                                                               attribute_type)  # ik tensor
-
-            attachment = (0.5 / noise_var) @ L2_res_per_ind_per_ft.float().t()
-            attachment += 0.5 * torch.log(TWO_PI * noise_var) @ data.n_observations_per_ind_per_ft.float().t()
+                                                                               attribute_type, model_values=model_values, **kwargs)  # ik tensor
+            if L2_res_per_ind_per_ft.ndim == 3:
+                attachment = (0.5 / noise_var) @ L2_res_per_ind_per_ft.float().transpose(1, 2)
+                attachment += (0.5 * torch.log(TWO_PI * noise_var) @ data.n_observations_per_ind_per_ft.float().t()).unsqueeze(0)
+            else:
+                attachment = (0.5 / noise_var) @ L2_res_per_ind_per_ft.float().t()
+                attachment += 0.5 * torch.log(TWO_PI * noise_var) @ data.n_observations_per_ind_per_ft.float().t()
 
         elif self.loss == 'crossentropy':
-            pred = self.compute_individual_tensorized(data.timepoints, param_ind, attribute_type)
+            pred = self.compute_individual_tensorized(data.timepoints, param_ind, attribute_type, **kwargs) if model_values is None else model_values
             mask = data.mask.float()
 
-            pred = torch.clamp(pred, 1e-38, 1. - 1e-7)  # safety before taking the log
-            neg_crossentropy = data.values * torch.log(pred) + (1. - data.values) * torch.log(1. - pred)
-            attachment = -torch.sum(mask * neg_crossentropy, dim=(1, 2))
+            neg_crossentropy = torch.nn.BCELoss(reduction='none')(pred, data.values)
+            attachment = torch.sum(mask * neg_crossentropy, dim=(1, 2))
 
-        return attachment.reshape((data.n_individuals,))  # 1D tensor of shape(n_individuals,)
+        elif self.loss == 'ordinal':
+            pred = self.compute_individual_tensorized(data.timepoints, param_ind, attribute_type, **kwargs) if model_values is None else model_values
+            s = list(pred.shape)
+            s[-1] = 1
+            ones = torch.ones(size=tuple(s)).float()
+            pred = torch.cat([ones, pred], dim=-1)
+            if data.ordinal is None:
+                max_level = max([feat["nb_levels"] for feat in self.ordinal_infos])
+                vals = data.values.long()
+                t = torch.eye(max_level + 1)
+                for k in range(max_level):
+                    t[k, k+1] = -1.
+                vals[vals != vals] = 0
+                vals = t[vals]
+
+                data.ordinal = {"values":vals}
+            else:
+                vals = data.ordinal["values"]
+
+            LL = -(torch.log((pred * vals).sum(dim=-1)).clamp(-20., 0.))
+            attachment = torch.sum(data.mask.float() * LL, dim=(1, 2))
+
+        attachment = attachment.reshape((-1, data.n_individuals))  # 1D tensor of shape(n_individuals,)
+        if attachment.shape[0] == 1:
+            attachment = attachment.squeeze(0)
+        return attachment
 
     def update_model_parameters(self, data, suff_stats, burn_in_phase=True, clusters=None):
         # Memoryless part of the algorithm
@@ -358,7 +386,7 @@ class AbstractModel:
             self.update_model_parameters_burn_in(data, suff_stats, clusters=clusters)
         # Stochastic sufficient statistics used to update the parameters of the model
         else:
-            self.update_model_parameters_normal(data, suff_stats, clusters=clusters)
+            self.update_model_parameters_normal(data, suff_stats)
         self.attributes.update(['all'], self.parameters)
 
     def update_model_parameters_burn_in(self, data, realizations):
@@ -379,7 +407,7 @@ class AbstractModel:
             output += "{} : {}\n".format(key, self.parameters[key])
         return output
 
-    def compute_regularity_realization(self, realization):
+    def compute_regularity_realization(self, realization, **kwargs):
         # Instanciate torch distribution
         if realization.variable_type == 'population':
             mean = self.parameters[realization.name]
@@ -393,15 +421,14 @@ class AbstractModel:
 
         return self.compute_regularity_variable(realization.tensor_realizations, mean, std)
 
-    def compute_regularity_variable(self, value, mean, std):
+    def compute_regularity_variable(self, value, mean, std, std_inv=None):
         # TODO change to static ???
         # Instanciate torch distribution
         # distribution = torch.distributions.normal.Normal(loc=mean, scale=std)
 
-        self.distribution.loc = mean
-        self.distribution.scale = std
-
-        return -self.distribution.log_prob(value)
+        if std_inv is not None:
+            return 0.5 * (((value - mean) @ std_inv) * (value - mean)).sum(dim=1, keepdims=True)
+        return (value - mean) ** 2 / (2 * std * std)
 
     def get_realization_object(self, n_individuals):
         # TODO : CollectionRealizations should probably get self.get_info_var rather than all self
@@ -412,8 +439,27 @@ class AbstractModel:
     def random_variable_informations(self):
         raise NotImplementedError
 
-    def smart_initialization_realizations(self, data, realizations):
+    def smart_initialization_realizations(self, data, realizations, init=None):
+        """
+        Smart initialization of realizations if needed.
+
+        Default behavior to return `realizations` as they are (no smart trick).
+
+        Parameters
+        ----------
+        data : :class:`.Dataset`
+        realizations : :class:`.CollectionRealization`
+
+        Returns
+        -------
+        :class:`.CollectionRealization`
+        """
+        if isinstance(init, IndividualParameters):
+            values = init.to_pytorch()[1]
+            for key in realizations.reals_ind_variable_names:
+                realizations.realizations[key]._tensor_realizations = values[key].clone()
         return realizations
+
 
     def _create_dictionary_of_population_realizations(self):
         pop_dictionary = {}

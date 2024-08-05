@@ -17,6 +17,7 @@ class Dataset:
         self.individual_parameters = None
         self.indices = list(data.individuals.keys())
         self.L2_norm = None
+        self.ordinal = None
 
         if model is not None:
             self._check_model_compatibility(data, model)

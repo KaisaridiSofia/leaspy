@@ -11,7 +11,7 @@ class ScipyMinimize(AbstractPersonalizeAlgo):
         super(ScipyMinimize, self).__init__(settings)
 
         self.verbose = False
-        if "verbose" is self.algo_parameters:
+        if "verbose" in self.algo_parameters:
             self.verbose = self.algo_parameters["verbose"]
 
         self.minimize_kwargs = {
@@ -60,7 +60,7 @@ class ScipyMinimize(AbstractPersonalizeAlgo):
         """
         x = [model.parameters["xi_mean"], model.parameters["tau_mean"]]
         if model.name != "univariate":
-            x += [torch.tensor([0.]) for _ in range(model.source_dimension)]
+            x += [0. for _ in range(model.source_dimension)]
         return x
 
     def _get_attachment(self, model, times, values, x):
@@ -84,48 +84,87 @@ class ScipyMinimize(AbstractPersonalizeAlgo):
         err: `torch.Tensor`
             Model values minus real values.
         """
-        xi = torch.tensor([x[0]], dtype=torch.float32).unsqueeze(0)
-        tau = torch.tensor([x[1]], dtype=torch.float32).unsqueeze(0)
-
-        if self.model_name == 'univariate':
-            individual_parameters = {'xi': xi, 'tau': tau}
-            err = model.compute_individual_tensorized(times, individual_parameters) - values
-        else:
-            sources = torch.tensor(x[2:], dtype=torch.float32).unsqueeze(0)
-            individual_parameters = {'xi': xi, 'tau': tau, 'sources': sources}
-            err = model.compute_individual_tensorized(times, individual_parameters) - values
+        individual_params_f = self._pull_individual_parameters(x, model)
+        err = model.compute_individual_tensorized(times, individual_params_f) - values
         return err
 
-    def _get_regularity(self, model, x):
+    def _get_regularity(self, model, individual_parameters):
         """
         Compute the regularity of a patient given his individual parameters for a given model.
 
         Parameters
         ----------
-        model: Leaspy model class object
+        model : :class:`.AbstractModel`
             Model used to compute the group average parameters.
-        x: `list` [`float`]
-            The individual parameters.
+
+        individual_parameters : dict[str, :class:`torch.Tensor` [n_ind,n_dims_param]]
+            Individual parameters as a dict
 
         Returns
         -------
-        regularity: `torch.Tensor`
-            Regularity of the patient corresponding to the given individual parameters.
+        regularity : :class:`torch.Tensor` [n_individuals]
+            Regularity of the patient(s) corresponding to the given individual parameters.
+            (Sum on all parameters)
+
+        regularity_grads : dict[param_name: str, :class:`torch.Tensor` [n_individuals, n_dims_param]]
+            Gradient of regularity term with respect to individual parameters.
         """
-        xi = torch.tensor(x[0], dtype=torch.float32)
-        tau = torch.tensor(x[1], dtype=torch.float32)
-        if self.model_name == 'univariate':
-            iterates = zip(['xi', 'tau'], (xi, tau))
-        else:
-            sources = torch.tensor(x[2:], dtype=torch.float32)
-            iterates = zip(['xi', 'tau', 'sources'], (xi, tau, sources))
 
         regularity = 0
-        for key, value in iterates:
-            mean = model.parameters["{0}_mean".format(key)]
-            std = model.parameters["{0}_std".format(key)]
-            regularity += torch.sum(model.compute_regularity_variable(value, mean, std))
-        return regularity
+        regularity_grads = {}
+
+        for param_name, param_val in individual_parameters.items():
+            # priors on this parameter
+            priors = dict(
+                mean = model.parameters[param_name+"_mean"],
+                std = model.parameters[param_name+"_std"]
+            )
+
+            # summation term
+            regularity += model.compute_regularity_variable(param_val, **priors).sum(dim=1)
+
+            # derivatives: <!> formula below is for Normal parameters priors only
+            # TODO? create a more generic method in model `compute_regularity_variable_gradient`? but to do so we should probably wait to have some more generic `compute_regularity_variable` as well (at least pass the parameter name to this method to compute regularity term)
+            regularity_grads[param_name] = (param_val - priors['mean']) / (priors['std']**2)
+
+        return (regularity, regularity_grads)
+
+
+    def _pull_individual_parameters(self, x, model):
+        """
+        Get individual parameters as a dict[param_name: str, :class:`torch.Tensor` [1,n_dims_param]]
+        from a condensed array-like version of it
+
+        (based on the conventional order defined in :meth:`._initialize_parameters`)
+        """
+        tensorized_params = torch.tensor(x, dtype=torch.float32).view((1,-1)) # 1 individual
+
+        # <!> order + rescaling of parameters
+        individual_parameters = {
+            'xi': tensorized_params[:,[0]] * model.parameters['xi_std'],
+            'tau': tensorized_params[:,[1]] * model.parameters['tau_std'],
+        }
+        if 'univariate' not in model.name and model.source_dimension > 0:
+            individual_parameters['sources'] = tensorized_params[:, 2:] * model.parameters['sources_std']
+
+        return individual_parameters
+
+    def _get_normalized_grad_tensor_from_grad_dict(self, dict_grad_tensors, model):
+        """
+        From a dict of gradient tensors per param (without normalization),
+        returns the full tensor of gradients (= for all params, consecutively):
+            * concatenated with conventional order of x0
+            * normalized because we derive w.r.t. "standardized" parameter (adimensional gradient)
+        """
+        to_cat = [
+            dict_grad_tensors['xi'] * model.parameters['xi_std'],
+            dict_grad_tensors['tau'] * model.parameters['tau_std']
+        ]
+        if 'univariate' not in model.name and model.source_dimension > 0:
+            to_cat.append( dict_grad_tensors['sources'] * model.parameters['sources_std'] )
+
+        return torch.cat(to_cat, dim=-1).transpose(0, -1).squeeze(-1) # 1 individual at a time
+
 
     def _get_individual_parameters_patient(self, model, times, values):
         """
@@ -181,39 +220,44 @@ class ScipyMinimize(AbstractPersonalizeAlgo):
             model, times, values = args
 
             # Attachment
-            xi = torch.tensor([x[0]], dtype=torch.float32).unsqueeze(0)
-            tau = torch.tensor([x[1]], dtype=torch.float32).unsqueeze(0)
+            individual_parameters = self._pull_individual_parameters(x, model)
 
-            if self.model_name == 'univariate':
-                individual_parameters = {'xi': xi, 'tau': tau}
-                attachment = model.compute_individual_tensorized(times, individual_parameters)
-                iterates = zip(['xi', 'tau'], (xi, tau))
-            else:
-                sources = torch.tensor(x[2:], dtype=torch.float32).unsqueeze(0)
-                individual_parameters = {'xi': xi, 'tau': tau, 'sources': sources}
-                attachment = model.compute_individual_tensorized(times, individual_parameters)
-                iterates = zip(['xi', 'tau', 'sources'], (xi, tau, sources))
-
-            diff = attachment - values
-            mask = (diff != diff)
+            attachment = model.compute_individual_tensorized(times, individual_parameters)
 
             if self.loss == 'MSE':
+                diff = attachment - values
+                mask = (diff != diff)
                 attachment = diff
                 attachment[mask] = 0.  # Set nan to zero, not to count in the sum
                 attachment = torch.sum(attachment ** 2) / (2. * model.parameters['noise_std'] ** 2)
             elif self.loss == 'crossentropy':
                 attachment = torch.clamp(attachment, 1e-38, 1. - 1e-7)  # safety before taking the log
                 neg_crossentropy = values * torch.log(attachment) + (1. - values) * torch.log(1. - attachment)
-                neg_crossentropy[mask] = 0. # Set nan to zero, not to count in the sum
+                neg_crossentropy[neg_crossentropy != neg_crossentropy] = 0. # Set nan to zero, not to count in the sum
                 attachment = -torch.sum(neg_crossentropy)
-            # Regularity
-            regularity = 0
-            for key, value in iterates:
-                mean = model.parameters["{0}_mean".format(key)]
-                std = model.parameters["{0}_std".format(key)]
-                regularity += torch.sum(model.compute_regularity_variable(value, mean, std))
+            elif self.loss == 'ordinal':
+                max_level = max([feat["nb_levels"] for feat in model.ordinal_infos])
 
-            return (regularity + attachment).detach().tolist()
+                s = list(attachment.shape)
+                s[-1] = 1
+                ones = torch.ones(size=tuple(s)).float()
+                pred = torch.cat([ones, attachment], dim=-1)
+                vals = values.long().clamp(0, max_level)
+                t = torch.eye(max_level + 1)
+                for k in range(max_level):
+                    t[k, k + 1] = -1.
+                vals[vals != vals] = 0
+                vals = t[vals]
+
+                mask = (values == values)
+
+                LL = -(torch.log((pred * vals).sum(dim=-1)).clamp(-20., 0.))
+                attachment = torch.sum(mask.float() * LL,)
+
+            # Regularity
+            regularity, _ = self._get_regularity(model, individual_parameters)
+
+            return (regularity + attachment).item()
 
         def jacob(x, *args):
             """
@@ -241,46 +285,61 @@ class ScipyMinimize(AbstractPersonalizeAlgo):
             model, times, values = args
 
             # Attachment
-            xi = torch.tensor([x[0]], dtype=torch.float32).unsqueeze(0)
-            tau = torch.tensor([x[1]], dtype=torch.float32).unsqueeze(0)
+            individual_parameters = self._pull_individual_parameters(x, model)
+            attachment = model.compute_individual_tensorized(times, individual_parameters)
+            grads = model.compute_jacobian_tensorized(times, individual_parameters)
+            # put derivatives consecutively in the right order and drop ind level
+            # --> output shape [n_tpts, n_fts [, n_ordinal_lvls], n_dims_params]
+            jacobian = self._get_normalized_grad_tensor_from_grad_dict(grads, model)
 
-            if self.model_name == 'univariate':
-                individual_parameters = {'xi': xi, 'tau': tau}
-                attachment = model.compute_individual_tensorized(times, individual_parameters)
-                jacobian = model.compute_jacobian_tensorized(times, individual_parameters)
-                iterates = zip(['xi', 'tau'], (xi, tau))
-            else:
-                sources = torch.tensor(x[2:], dtype=torch.float32).unsqueeze(0)
-                individual_parameters = {'xi': xi, 'tau': tau, 'sources': sources}
-                attachment = model.compute_individual_tensorized(times, individual_parameters)
-                jacobian = model.compute_jacobian_tensorized(times, individual_parameters)
-                iterates = zip(['xi', 'tau', 'sources'], (xi, tau, sources))
-
-            attachment = attachment.unsqueeze(0)
-            diff = attachment - values.unsqueeze(0)
+            attachment = attachment
 
             if self.loss == 'MSE':
+                diff = attachment - values
                 attachment = diff * jacobian
                 mask = (attachment != attachment)
                 attachment[mask] = 0.
                 # Set nan to zero, not to count in the sum
-                attachment = torch.sum(attachment, dim=(0, 2, 3)) / (model.parameters['noise_std'] ** 2)
+                attachment = torch.sum(attachment, dim=(1, 2)) / (model.parameters['noise_std'] ** 2)
             elif self.loss == 'crossentropy':
+                diff = attachment - values
                 attachment = torch.clamp(attachment, 1e-38, 1. - 1e-7)  # safety before dividing
                 neg_crossentropy = diff / (attachment * (1. - attachment))
                 neg_crossentropy = neg_crossentropy * jacobian
                 mask = (neg_crossentropy != neg_crossentropy)
                 neg_crossentropy[mask] = 0.  # Set nan to zero, not to count in the sum
-                attachment = torch.sum(neg_crossentropy, dim=(0, 2, 3))
-            # Regularity
-            regularities = []
-            for i, (key, value) in enumerate(iterates):
-                mean = model.parameters["{0}_mean".format(key)]
-                std = model.parameters["{0}_std".format(key)]
-                regularities.append((value - mean) / (std ** 2))
-            regularity = torch.cat(regularities, dim=1).sum(dim=0)
+                attachment = torch.sum(neg_crossentropy, dim=(1, 2))
+            elif self.loss == 'ordinal':
+                max_level = max([feat["nb_levels"] for feat in model.ordinal_infos])
 
-            return (regularity + attachment).detach().tolist()
+                s = list(attachment.shape)
+                s[-1] = 1
+                ones = torch.ones(size=tuple(s)).float()
+
+                s = list(jacobian.shape)
+                s[-1] = 1
+                zeros = torch.zeros(size=tuple(s)).float()
+
+                pred = torch.cat([ones, attachment], dim=-1)
+                jac = torch.cat([zeros, jacobian], dim=-1)
+                vals = values.long().clamp(0, max_level)
+                t = torch.eye(max_level + 1)
+                for k in range(max_level):
+                    t[k, k + 1] = -1.
+                vals[vals != vals] = 0
+                vals = t[vals]
+
+                mask = (values == values)
+
+                LL = - (jac * vals).sum(dim=-1) / (pred * vals).sum(dim=-1)
+                attachment = torch.sum(mask.float() * LL, dim=(1, 2))
+
+            # Regularity
+            _, regularity_grads = self._get_regularity(model, individual_parameters)
+            regularity = self._get_normalized_grad_tensor_from_grad_dict(regularity_grads, model)
+
+
+            return (regularity + attachment).detach().numpy()
 
         initial_value = self._initialize_parameters(model)
         if self.algo_parameters['use_jacobian']:
@@ -299,10 +358,18 @@ class ScipyMinimize(AbstractPersonalizeAlgo):
         if res.success is not True and self.verbose:
             print(res.success, res)
 
-        xi_f, tau_f, sources_f = res.x[0], res.x[1], res.x[2:]
-        err_f = self._get_attachment(model, times.unsqueeze(0), values, res.x)
+        individual_params_f = self._pull_individual_parameters(res.x, model)
+        individual_params_f = {
+            k: v.item() if k != 'sources' else v.detach().squeeze(0).tolist()
+            for k, v in individual_params_f.items()
+        }
 
-        return (tau_f, xi_f, sources_f), err_f  # TODO depends on the order
+        if self.loss == "MSE":
+            err_f = self._get_attachment(model, times.unsqueeze(0), values, res.x)
+        else:
+            err_f = "TODO compute_attachment for other losses"
+
+        return individual_params_f, err_f  # TODO depends on the order
 
     def _get_individual_parameters(self, model, data):
         """
@@ -323,15 +390,12 @@ class ScipyMinimize(AbstractPersonalizeAlgo):
 
         individual_parameters = IndividualParameters()
 
-        p_names = model.get_individual_variable_name()
-
         for iter in range(data.n_individuals):
             times = data.get_times_patient(iter)  # torch.Tensor
             values = data.get_values_patient(iter)  # torch.Tensor
             idx = data.indices[iter]
 
             ind_patient, err = self._get_individual_parameters_patient(model, times, values)
-            ind_p = {k: v for k, v in zip(p_names, ind_patient)}
-            individual_parameters.add_individual_parameters(str(idx), ind_p)
+            individual_parameters.add_individual_parameters(str(idx), ind_patient)
 
         return individual_parameters

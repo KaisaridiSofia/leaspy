@@ -5,11 +5,17 @@ from .abstract_multivariate_model import AbstractMultivariateModel
 from .utils.attributes.attributes_factory import AttributesFactory
 
 
-class MultivariateModel(AbstractMultivariateModel):
-    def __init__(self, name):
-        super(MultivariateModel, self).__init__(name)
+class MultivariateIPMixtureModel(AbstractMultivariateModel):
+    def __init__(self, name, nb_clusters=1):
+        super(MultivariateIPMixtureModel, self).__init__(name)
         self.parameters["v0"] = None
         self.MCMC_toolbox['priors']['v0_std'] = None  # Value, Coef
+        self.nb_clusters = nb_clusters
+        for k in range(self.nb_clusters):
+            self.parameters[f'tau_xi_{k}_mean'] = None
+            self.parameters[f'tau_xi_{k}_std'] = None
+            self.parameters[f'tau_xi_{k}_std_inv'] = None
+        self.parameters["pi"] = None
 
     def load_parameters(self, parameters):
         self.parameters = {}
@@ -22,7 +28,7 @@ class MultivariateModel(AbstractMultivariateModel):
         self.attributes.update(['all'], self.parameters)
 
     def compute_individual_tensorized(self, timepoints, ind_parameters, attribute_type=None):
-        if self.name == 'logistic':
+        if self.name == 'logistic_mixture':
             return self.compute_individual_tensorized_logistic(timepoints, ind_parameters, attribute_type)
         elif self.name == 'linear':
             return self.compute_individual_tensorized_linear(timepoints, ind_parameters, attribute_type)
@@ -131,7 +137,7 @@ class MultivariateModel(AbstractMultivariateModel):
         b = g_plus_1 * g_plus_1 / g
 
         # Individual parameters
-        xi, tau = individual_parameters['xi'], individual_parameters['tau']
+        xi, tau = individual_parameters['tau_xi'][...,1:], individual_parameters['tau_xi'][...,:1]
 
         reparametrized_time = self.time_reparametrization(timepoints, xi, tau).unsqueeze(-1)
 
@@ -248,7 +254,31 @@ class MultivariateModel(AbstractMultivariateModel):
         if order == 2:
             return model_values, derivatives, fisher
 
-    def compute_moments_regularization(self, realizations, order=0, selected_variables="all", attribute_type=None):
+    def compute_regularity_realization(self, realization, cluster=0, proba_clusters=None):
+        # Instantiate torch distribution
+        std_inv = None
+        if realization.variable_type == 'population':
+            mean = self.parameters[realization.name]
+            # TODO : Sure it is only MCMC_toolbox?
+            std = self.MCMC_toolbox['priors']['{0}_std'.format(realization.name)]
+        elif realization.variable_type == 'individual':
+            name = realization.name
+            if name == 'tau_xi':
+                if proba_clusters is not None:
+                    regs = torch.stack([self.compute_regularity_realization(realization, cluster=k) for k in
+                                       range(self.nb_clusters)])
+                    reg = (regs * proba_clusters.unsqueeze(-1)).sum(dim=0)
+                    return reg
+                name = name + f'_{cluster}'
+                std_inv = self.parameters["{0}_std_inv".format(name)]
+            mean = self.parameters["{0}_mean".format(name)]
+            std = self.parameters["{0}_std".format(name)]
+        else:
+            raise ValueError("Variable type not known")
+
+        return self.compute_regularity_variable(realization.tensor_realizations, mean, std, std_inv=std_inv)
+
+    def compute_moments_regularization(self, realizations, order=0, selected_variables="all", attribute_type=None, cluster=0, proba_clusters=None):
         '''
 
         Parameters
@@ -294,8 +324,11 @@ class MultivariateModel(AbstractMultivariateModel):
                     -1)
                 derivatives[key] = ((values - mean) / (std * std)).reshape(-1)
             elif realization.variable_type == 'individual':
-                mean = self.parameters["{0}_mean".format(realization.name)]
-                std = self.parameters["{0}_std".format(realization.name)]
+                name = realization.name
+                if name in ['xi', 'tau']:
+                    name = name+f'_{cluster}'
+                mean = self.parameters["{0}_mean".format(name)]
+                std = self.parameters["{0}_std".format(name)]
                 regularization[key] = (
                             (values - mean) ** 2 / (2 * std * std) + 0.5 * math.log(2 * math.pi * std * std)).reshape(values.shape[0],
                     -1)
@@ -473,25 +506,25 @@ class MultivariateModel(AbstractMultivariateModel):
         self.MCMC_toolbox['attributes'].update(name_of_the_variables_that_have_been_changed, values)
 
     def _center_xi_realizations(self, realizations):
-        mean_xi = torch.mean(realizations['xi'].tensor_realizations)
-        realizations['xi'].tensor_realizations = realizations['xi'].tensor_realizations - mean_xi
+        mean_xi = torch.mean(realizations['tau_xi'].tensor_realizations[..., 1])
+        realizations['tau_xi'].tensor_realizations[..., 1] = realizations['tau_xi'].tensor_realizations[..., 1] - mean_xi
         realizations['v0'].tensor_realizations = realizations['v0'].tensor_realizations + mean_xi
 
         self.update_MCMC_toolbox(['all'], realizations)
         return realizations
 
-    def compute_sufficient_statistics(self, data, realizations):
+    def compute_sufficient_statistics(self, data, realizations, clusters):
         # if self.name == 'logistic':
         realizations = self._center_xi_realizations(realizations)
 
         sufficient_statistics = {
             'g': realizations['g'].tensor_realizations,
             'v0': realizations['v0'].tensor_realizations,
-            'tau': realizations['tau'].tensor_realizations,
-            'tau_sqrd': torch.pow(realizations['tau'].tensor_realizations, 2),
-            'xi': realizations['xi'].tensor_realizations,
-            'xi_sqrd': torch.pow(realizations['xi'].tensor_realizations, 2)
+            'tau_xi': realizations['tau_xi'].tensor_realizations,
         }
+
+        sufficient_statistics["proba_clusters"] = clusters
+
         if self.source_dimension != 0:
             sufficient_statistics['betas'] = realizations['betas'].tensor_realizations
 
@@ -499,16 +532,17 @@ class MultivariateModel(AbstractMultivariateModel):
             sufficient_statistics['deltas'] = realizations['deltas'].tensor_realizations
         ind_parameters = self.get_param_from_real(realizations)
 
+
         if self.loss == 'MSE':
             data_reconstruction = self.compute_individual_tensorized(data.timepoints,
                                                                      ind_parameters,
                                                                      attribute_type='MCMC')
             norm_0 = data.values * data.values * data.mask.float()
-            norm_1 = data.values * data_reconstruction * data.mask.float()
-            norm_2 = data_reconstruction * data_reconstruction * data.mask.float()
-            sufficient_statistics['obs_x_obs'] = torch.sum(norm_0, dim=2)
-            sufficient_statistics['obs_x_reconstruction'] = torch.sum(norm_1, dim=2)
-            sufficient_statistics['reconstruction_x_reconstruction'] = torch.sum(norm_2, dim=2)
+            norm_1 = data_reconstruction * (data.values * data.mask.float()).unsqueeze(0)
+            norm_2 = data_reconstruction * data_reconstruction * data.mask.float().unsqueeze(0)
+            sufficient_statistics['obs_x_obs'] = torch.sum(norm_0, dim=-1)
+            sufficient_statistics['obs_x_reconstruction'] = torch.sum(norm_1, dim=-1)
+            sufficient_statistics['reconstruction_x_reconstruction'] = torch.sum(norm_2, dim=-1)
 
         elif self.loss == 'crossentropy':
             sufficient_statistics['crossentropy'] = self.compute_individual_attachment_tensorized(data, ind_parameters,
@@ -521,7 +555,9 @@ class MultivariateModel(AbstractMultivariateModel):
 
     def update_model_parameters_burn_in(self, data, realizations, clusters=None):
         # if self.name == 'logistic':
-        realizations = self._center_xi_realizations(realizations)
+
+        # try without centering during burn-in
+#        realizations = self._center_xi_realizations(realizations)
 
         # Memoryless part of the algorithm
         self.parameters['g'] = realizations['g'].tensor_realizations
@@ -541,58 +577,41 @@ class MultivariateModel(AbstractMultivariateModel):
 
         if self.loss == 'ordinal':
             self.parameters['deltas'] = realizations['deltas'].tensor_realizations
-
-        xi = realizations['xi'].tensor_realizations
-        tau = realizations['tau'].tensor_realizations
-        if clusters is None:
-            self.parameters['xi_std'] = torch.std(xi)
-            self.parameters['tau_mean'] = torch.mean(tau)
-            self.parameters['tau_std'] = torch.std(tau)
-
-            param_ind = self.get_param_from_real(realizations)
-
-            if self.loss == 'MSE':
-                squared_diff = self.compute_sum_squared_tensorized(data, param_ind, attribute_type='MCMC').sum()
-                self.parameters['noise_std'] = torch.sqrt(squared_diff / data.n_observations)
-
-            elif self.loss == 'crossentropy':
-                crossentropy = self.compute_individual_attachment_tensorized(data, param_ind, attribute_type='MCMC').sum()
-                self.parameters['crossentropy'] = crossentropy
-            elif self.loss == 'ordinal':
-                crossentropy = self.compute_individual_attachment_tensorized(data, param_ind, attribute_type='MCMC').sum()
-                self.parameters['log-likelihood'] = crossentropy
             # Stochastic sufficient statistics used to update the parameters of the model
-        else:
-            if clusters.sum() != 0.:
-                S_inv = 1./clusters.sum()
-                clusters = clusters.unsqueeze(-1)
-                xi_err = xi
-                xi_err2 = xi_err * xi_err
-                self.parameters['xi_std'] = torch.sqrt((S_inv * (clusters * xi_err2)).sum())
-                self.parameters['tau_mean'] = S_inv * (clusters * tau).sum()
-                tau_err = tau - self.parameters['tau_mean']
-                tau_err2 = tau_err * tau_err
-                self.parameters['tau_std'] = torch.sqrt((S_inv * (clusters * tau_err2)).sum())
+        tau_xi = realizations['tau_xi'].tensor_realizations
+        for k in range(self.nb_clusters):
+            cluster = clusters[k]
+            if cluster.sum() != 0.:
+                S_inv = 1./cluster.sum()
+                cluster = cluster.unsqueeze(-1)
+                self.parameters[f'tau_xi_{k}_mean'] = S_inv * (cluster * tau_xi).sum(dim=0)
+                err = tau_xi - self.parameters[f'tau_xi_{k}_mean'].unsqueeze(0)
+                err2 = (cluster * err).T @ err
+                tau_xi_std = S_inv * err2
+                self.parameters[f'tau_xi_{k}_std'] = tau_xi_std + 1e-8 * torch.eye(2)
+                self.parameters[f'tau_xi_{k}_std_inv'] = torch.linalg.inv(self.parameters[f'tau_xi_{k}_std'])
 
-                param_ind = self.get_param_from_real(realizations)
+        self.parameters['pi'] = clusters.sum(dim=1)/clusters.sum()
 
-                if self.loss == 'MSE':
-                    squared_diff = (clusters.squeeze(-1)*self.compute_sum_squared_tensorized(data, param_ind, attribute_type='MCMC')).sum()
-                    self.parameters['noise_std'] = torch.sqrt(squared_diff / ((clusters.unsqueeze(-1) * data.mask.float())).sum())
+        param_ind = self.get_param_from_real(realizations)
 
-                elif self.loss == 'crossentropy':
-                    crossentropy = (clusters.squeeze(-1)*self.compute_individual_attachment_tensorized(data, param_ind,
-                                                                                 attribute_type='MCMC')).sum()
-                    self.parameters['crossentropy'] = crossentropy
+        if self.loss == 'MSE':
+            squared_diff = self.compute_sum_squared_tensorized(data, param_ind, attribute_type='MCMC').sum()
+            self.parameters['noise_std'] = torch.sqrt(squared_diff / data.n_observations)
 
-                elif self.loss == 'ordinal':
-                    crossentropy = (clusters.squeeze(-1)*self.compute_individual_attachment_tensorized(data, param_ind,
-                                                                                 attribute_type='MCMC')).sum()
-                    self.parameters['log-likelihood'] = crossentropy
+        elif self.loss == 'crossentropy':
+            crossentropy = (clusters.squeeze(-1)*self.compute_individual_attachment_tensorized(data, param_ind,
+                                                                         attribute_type='MCMC')).sum()
+            self.parameters['crossentropy'] = crossentropy
+
+        elif self.loss == 'ordinal':
+            crossentropy = (clusters.squeeze(-1)*self.compute_individual_attachment_tensorized(data, param_ind,
+                                                                         attribute_type='MCMC')).sum()
+            self.parameters['log-likelihood'] = crossentropy
 
         # Stochastic sufficient statistics used to update the parameters of the model
 
-    def update_model_parameters_normal(self, data, suff_stats, clusters=None):
+    def update_model_parameters_normal(self, data, suff_stats):
         # TODO with Raphael : check the SS, especially the issue with mean(xi) and v_k
         # TODO : 1. Learn the mean of xi and v_k
         # TODO : 2. Set the mean of xi to 0 and add it to the mean of V_k
@@ -603,55 +622,35 @@ class MultivariateModel(AbstractMultivariateModel):
         if self.loss == 'ordinal':
             self.parameters['deltas'] = suff_stats['deltas']
 
-        if clusters is None:
+        clusters = suff_stats["proba_clusters"]
 
-            tau_mean = self.parameters['tau_mean']
-            tau_std_updt = torch.mean(suff_stats['tau_sqrd']) - 2 * tau_mean * torch.mean(suff_stats['tau'])
-            self.parameters['tau_std'] = torch.sqrt(torch.clamp(tau_std_updt + tau_mean ** 2, 1e-32))
-            self.parameters['tau_mean'] = torch.mean(suff_stats['tau'])
+        for k in range(self.nb_clusters):
+            cluster = clusters[k]
+            if cluster.sum() != 0.:
+                S_inv = 1./cluster.sum()
+                cluster = cluster.unsqueeze(-1)
 
-            xi_std_updt = torch.mean(suff_stats['xi_sqrd'])
-            self.parameters['xi_std'] = torch.sqrt(torch.clamp(xi_std_updt, 1e-32))
+                tau_xi = suff_stats["tau_xi"]
+                self.parameters[f'tau_xi_{k}_mean'] = S_inv * (cluster * tau_xi).sum(dim=0)
+                err = tau_xi - self.parameters[f'tau_xi_{k}_mean'].unsqueeze(0)
+                err2 = (cluster * err).T @ err
+                tau_xi_std = S_inv * err2
+                self.parameters[f'tau_xi_{k}_std'] = tau_xi_std + 1e-8 * torch.eye(2)
+                self.parameters[f'tau_xi_{k}_std_inv'] = torch.linalg.inv(self.parameters[f'tau_xi_{k}_std'])
 
-            if self.loss == 'MSE':
-                S1 = data.L2_norm
-                S2 = torch.sum(suff_stats['obs_x_reconstruction'])
-                S3 = torch.sum(suff_stats['reconstruction_x_reconstruction'])
+        self.parameters["pi"] = clusters.sum(dim=1)/clusters.sum()
+        if self.loss == 'MSE':
+            S1 = torch.sum(suff_stats['obs_x_obs'])
+            S2 = torch.sum(suff_stats['obs_x_reconstruction'])
+            S3 = torch.sum(suff_stats['reconstruction_x_reconstruction'])
 
-                self.parameters['noise_std'] = torch.sqrt((S1 - 2. * S2 + S3) / data.n_observations)
+            self.parameters['noise_std'] = torch.sqrt((S1 - 2. * S2 + S3) / (data.mask.float()).sum())
 
-            elif self.loss == 'crossentropy':
-                self.parameters['crossentropy'] = suff_stats['crossentropy'].sum()
+        elif self.loss == 'crossentropy':
+            self.parameters['crossentropy'] = (clusters.squeeze(-1)*suff_stats['crossentropy']).sum()
 
-            elif self.loss == 'ordinal':
-                self.parameters['log-likelihood'] = suff_stats['log-likelihood'].sum()
-
-        else:
-            if clusters.sum() != 0.:
-                S_inv = 1./clusters.sum()
-                clusters = clusters.unsqueeze(-1)
-
-                tau_mean = self.parameters['tau_mean']
-                tau_std_updt = S_inv*(clusters*(
-                        suff_stats['tau_sqrd'] - 2 * tau_mean * suff_stats['tau'] + tau_mean ** 2)).sum()
-                self.parameters['tau_std'] = torch.sqrt(torch.clamp(tau_std_updt, 1e-32))
-                self.parameters['tau_mean'] = S_inv*(clusters*suff_stats['tau']).sum()
-
-                xi_std_updt = S_inv * (clusters * suff_stats['xi_sqrd']).sum()
-                self.parameters['xi_std'] = torch.sqrt(torch.clamp(xi_std_updt, 1e-32))
-
-                if self.loss == 'MSE':
-                    S1 = torch.sum(clusters*suff_stats['obs_x_obs'])
-                    S2 = torch.sum(clusters*suff_stats['obs_x_reconstruction'])
-                    S3 = torch.sum(clusters*suff_stats['reconstruction_x_reconstruction'])
-
-                    self.parameters['noise_std'] = torch.sqrt((S1 - 2. * S2 + S3) / ((clusters.unsqueeze(-1) * data.mask.float()).sum()))
-
-                elif self.loss == 'crossentropy':
-                    self.parameters['crossentropy'] = (clusters.squeeze(-1)*suff_stats['crossentropy']).sum()
-
-                elif self.loss == 'ordinal':
-                    self.parameters['log-likelihood'] = (clusters.squeeze(-1)*suff_stats['log-likelihood']).sum()
+        elif self.loss == 'ordinal':
+            self.parameters['log-likelihood'] = (clusters.squeeze(-1)*suff_stats['log-likelihood']).sum()
 
     ###################################
     ### Random Variable Information ###
@@ -681,17 +680,11 @@ class MultivariateModel(AbstractMultivariateModel):
             "rv_type": "multigaussian"
         }
 
-        ## Individual variables
-        tau_infos = {
-            "name": "tau",
-            "shape": torch.Size([1]),
-            "type": "individual",
-            "rv_type": "gaussian"
-        }
 
-        xi_infos = {
-            "name": "xi",
-            "shape": torch.Size([1]),
+        ## Individual variables
+        tau_xi_infos = {
+            "name": "tau_xi",
+            "shape": torch.Size([2]),
             "type": "individual",
             "rv_type": "gaussian"
         }
@@ -706,8 +699,7 @@ class MultivariateModel(AbstractMultivariateModel):
         variables_infos = {
             "g": g_infos,
             "v0": v0_infos,
-            "tau": tau_infos,
-            "xi": xi_infos,
+            "tau_xi": tau_xi_infos,
         }
 
         if self.source_dimension != 0:

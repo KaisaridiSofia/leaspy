@@ -51,7 +51,7 @@ class Leaspy:
         Check if model is initialized.
     """
 
-    def __init__(self, model_name):
+    def __init__(self, model_name, **kwargs):
         """
         Instantiate a Leaspy class object.
 
@@ -60,7 +60,7 @@ class Leaspy:
         model_name : str
             Model's name
         """
-        self.model = ModelFactory.model(model_name)
+        self.model = ModelFactory.model(model_name, **kwargs)
         self.type = model_name
         self.plotting = Plotting(self.model)
 

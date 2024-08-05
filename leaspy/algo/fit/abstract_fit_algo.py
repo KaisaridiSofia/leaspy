@@ -24,10 +24,13 @@ class AbstractFitAlgo(AbstractAlgo):
         realizations = model.get_realization_object(data.n_individuals)
 
         # Smart init the realizations
-        realizations = model.smart_initialization_realizations(data, realizations)
+        init_values = None
+        if "init_real" in self.algo_parameters:
+            init_values = self.algo_parameters["init_real"]
+        realizations = model.smart_initialization_realizations(data, realizations, init=init_values)
 
         # Initialize Algo
-        self._initialize_algo(data, model, realizations)
+        realizations = self._initialize_algo(data, model, realizations)
 
         # Iterate
         for it in range(self.algo_parameters['n_iter']):
@@ -36,8 +39,9 @@ class AbstractFitAlgo(AbstractAlgo):
                 self.output_manager.iteration(self, data, model, realizations)
             self.current_iteration += 1
 
-        print("The standard deviation of the noise at the end of the calibration is {:.4f}".format(
-            model.parameters['noise_std']))
+        if model.loss == 'MSE':
+            print("The standard deviation of the noise at the end of the calibration is {:.4f}".format(
+                model.parameters['noise_std']))
         loss = model.compute_individual_attachment_tensorized_mcmc(data, realizations).sum().detach().numpy()
         regularization = 0.
         for key in realizations.reals_ind_variable_names:

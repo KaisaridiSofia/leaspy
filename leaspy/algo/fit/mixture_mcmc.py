@@ -2,8 +2,13 @@ import torch
 import numpy as np
 
 from ..abstract_algo import AbstractAlgo
-from ..samplers.hmc_sampler import HMCSampler
 from ..samplers.gibbs_sampler import GibbsSampler
+from ..samplers.old_gibbs_sampler import OldGibbsSampler
+from ..samplers.fast_gibbs_sampler import FastGibbsSampler
+from ..samplers.metropolis_hastings_sampler import MetropolisHastingsSampler
+from ..samplers.hmc_sampler import HMCSampler
+
+from leaspy.models.utils.initialization.model_initialization import initialize_ordinal
 
 
 class MixtureFitMCMC(AbstractAlgo):
@@ -24,7 +29,8 @@ class MixtureFitMCMC(AbstractAlgo):
         self.sufficient_statistics = []
         self.current_iteration = 0
         self.nb_clusters = self.algo_parameters['nb_clusters']
-        self.pi = np.array([1. / self.nb_clusters for k in range(self.nb_clusters)])
+        self.pi = torch.tensor([1. / self.nb_clusters for k in range(self.nb_clusters)]).float()
+        self.rm_pi = torch.zeros(self.nb_clusters)
         self.loss = settings.loss
         self.stochastic = False
         if 'stochastic' in self.algo_parameters:
@@ -33,6 +39,9 @@ class MixtureFitMCMC(AbstractAlgo):
         # Annealing
         self.temperature_inv = 1.
         self.temperature = 1.
+
+        self.attachment = None
+        self._probas = None
 
     ###########################
     ## Initialization
@@ -46,9 +55,26 @@ class MixtureFitMCMC(AbstractAlgo):
         :param realizations:
         :return: realizations
         """
+        for i, model in enumerate(models):
+            # handling loss, a bit dirty...
+            if model.loss != 'MSE':  # non default loss from model
+                assert self.loss in ['MSE', model.loss], \
+                    f"You provided inconsistent loss: '{model.loss}' for model and '{self.loss}' for algo."
+                # set algo loss to the one from model
+                self.loss = model.loss
+            else:
+                # set model loss from algo
+                model.loss = self.loss
+
+            # Handling addition of parameters in case of ordinal loss
+            if model.loss == 'ordinal':
+                # Reinitialize model with added parameters
+                initialize_ordinal(model, data, self.algo_parameters)
+                realizations[i] = model.get_realization_object(data.n_individuals)
+
         # Samplers
         self._initialize_samplers(models, data)
-        self.pi = initial_clusters.sum(axis=1) / float(data.n_individuals)
+        self.pi = torch.tensor([1. / self.nb_clusters for k in range(self.nb_clusters)]).float()
         for i, model in enumerate(models):
             # MCMC toolbox (cache variables for speed-ups + tricks)
             model.initialize_MCMC_toolbox()
@@ -82,11 +108,23 @@ class MixtureFitMCMC(AbstractAlgo):
                 if info["type"] == "individual":
                     if self.algo_parameters['sampler_ind'] == 'Gibbs':
                         self.samplers[i][variable] = GibbsSampler(info, data.n_individuals)
+                    elif self.algo_parameters['sampler_ind'] == 'OldGibbs':
+                        self.samplers[i][variable] = OldGibbsSampler(info, data.n_individuals)
+                    elif self.algo_parameters['sampler_ind'] == 'FastGibbs':
+                        self.samplers[i][variable] = FastGibbsSampler(info, data.n_individuals)
+                    elif self.algo_parameters['sampler_ind'] == 'MH':
+                        self.samplers[i][variable] = MetropolisHastingsSampler(info, data.n_individuals)
                     else:
                         self.samplers[i][variable] = HMCSampler(info, data.n_individuals, self.algo_parameters['eps'])
                 else:
                     if self.algo_parameters['sampler_pop'] == 'Gibbs':
                         self.samplers[i][variable] = GibbsSampler(info, data.n_individuals)
+                    elif self.algo_parameters['sampler_ind'] == 'OldGibbs':
+                        self.samplers[i][variable] = OldGibbsSampler(info, data.n_individuals)
+                    elif self.algo_parameters['sampler_ind'] == 'FastGibbs':
+                        self.samplers[i][variable] = FastGibbsSampler(info, data.n_individuals)
+                    elif self.algo_parameters['sampler_ind'] == 'MH':
+                        self.samplers[i][variable] = MetropolisHastingsSampler(info, data.n_individuals)
                     else:
                         self.samplers[i][variable] = HMCSampler(info, data.n_individuals, self.algo_parameters['eps'])
 
@@ -113,7 +151,7 @@ class MixtureFitMCMC(AbstractAlgo):
 
         if initial_clusters is None:
             # Initialize random clusters
-            initial_clusters = np.random.random(size=(data.n_individuals, self.nb_clusters)).T
+            initial_clusters = np.exp(np.random.random(size=(data.n_individuals, self.nb_clusters))).T
             initial_clusters = initial_clusters / initial_clusters.sum(axis=0, keepdims=True)
 
         # Then initialize the Realizations (from the random variables)
@@ -160,12 +198,11 @@ class MixtureFitMCMC(AbstractAlgo):
         # Computing clusters step
         individual_attachments = torch.zeros((len(models), data.n_individuals))
         for i, model in enumerate(models):
-            log_prob = model.compute_individual_attachment_tensorized_mcmc(data, realizations[i])
+            individual_attachments[i] = torch.log(self.pi[i])-model.compute_individual_attachment_tensorized_mcmc(data, realizations[i])
             for key in realizations[i].reals_ind_variable_names:
-                log_prob += self.temperature_inv * model.compute_regularity_realization(realizations[i][key]).sum(dim=1).reshape(data.n_individuals)
-            individual_attachments[i] = self.pi[i] * torch.exp(-log_prob)
-        individual_attachments = torch.clamp(individual_attachments, 1e-32)
-        proba_clusters = individual_attachments / individual_attachments.sum(axis=0, keepdims=True)
+                individual_attachments[i] -= model.compute_regularity_realization(realizations[i][key]).sum(dim=1).reshape(data.n_individuals)
+        proba_clusters = torch.nn.Softmax(dim=0)(torch.clamp(individual_attachments, -100.))
+        self._probas = proba_clusters
 
         if self.stochastic:
             # Sample from it
@@ -180,10 +217,11 @@ class MixtureFitMCMC(AbstractAlgo):
 
         for i, model in enumerate(models):
             # Sample step
+            self.attachment = None
             for key in realizations[i].reals_pop_variable_names:
-                self.samplers[i][key].sample(data, model, realizations[i], self.temperature_inv, clusters=clusters[i])
+                self.attachment = self.samplers[i][key].sample(data, model, realizations[i], self.temperature_inv, clusters=clusters[i], previous_attachment=self.attachment)
             for key in realizations[i].reals_ind_variable_names:
-                self.samplers[i][key].sample(data, model, realizations[i], self.temperature_inv, clusters=clusters[i])
+                self.attachment = self.samplers[i][key].sample(data, model, realizations[i], self.temperature_inv, clusters=clusters[i], previous_attachment=self.attachment)
 
         # Maximization step
         self._maximization_step(data, models, realizations, clusters=clusters)
@@ -210,7 +248,7 @@ class MixtureFitMCMC(AbstractAlgo):
         c = params['delay']
         r = params['period']
         k = self.current_iteration
-        kappa = c + float(k)/(2.*r*np.pi)
+        kappa = c + 2. * float(k) * np.pi / r
         self.temperature = max(1. + b * np.sin(kappa)/kappa, 0.1)
         self.temperature_inv = 1./self.temperature
 
@@ -233,6 +271,7 @@ class MixtureFitMCMC(AbstractAlgo):
                 burn_in_step = 1. / (self.current_iteration - self.algo_parameters['n_burn_in_iter'] + 1)
                 self.sufficient_statistics[i] = {k: v + burn_in_step * (sufficient_statistics[k] - v)
                                                  for k, v in self.sufficient_statistics[i].items()}
+                self.rm_pi = self.rm_pi + burn_in_step * (self.pi - self.rm_pi)
                 model.update_model_parameters(data, self.sufficient_statistics[i], burn_in_phase, clusters=clusters[i])
 
     def _is_burn_in(self):

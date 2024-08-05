@@ -1,3 +1,4 @@
 from .univariate_model import UnivariateModel
 from .multivariate_model import MultivariateModel
 from .multivariate_parallel_model import MultivariateParallelModel
+from .multivariate_ip_mixture_model import MultivariateIPMixtureModel

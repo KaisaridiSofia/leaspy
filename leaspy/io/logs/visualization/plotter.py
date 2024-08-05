@@ -50,6 +50,9 @@ class Plotter:
 
             mean_trajectory = model.compute_mean_traj(timepoints).detach().numpy()
 
+            if model.loss == 'ordinal':
+                mean_trajectory = mean_trajectory[...,0]
+
             for i in range(mean_trajectory.shape[-1]):
                 ax.plot(timepoints[0, :].detach().numpy(), mean_trajectory[0, :, i], label=labels[i],
                         linewidth=4, alpha=0.9, c=colors[i])  # , c=colors[i])
@@ -72,6 +75,9 @@ class Plotter:
 
             for j, el in enumerate(model):
                 mean_trajectory = el.compute_mean_traj(timepoints).detach().numpy()
+
+                if model.loss == 'ordinal':
+                    mean_trajectory = mean_trajectory[..., 0]
 
                 for i in range(mean_trajectory.shape[-1]):
                     ax.plot(timepoints[0, :].detach().numpy(), mean_trajectory[0, :, i], label=labels[i],
@@ -132,6 +138,10 @@ class Plotter:
             indiv_parameters = results.get_patient_individual_parameters(idx)
 
             trajectory = model.compute_individual_tensorized(t, indiv_parameters).squeeze(0)
+
+            if model.loss == 'ordinal':
+                trajectory = trajectory[...,0]
+
             for dim in range(model.dimension):
                 not_nans_idx = np.array(1-np.isnan(observations[:, dim]),dtype=bool)
                 ax.plot(np.array(timepoints), trajectory.detach().numpy()[:, dim], c=colors[dim])
@@ -158,6 +168,10 @@ class Plotter:
         fig, ax = plt.subplots(1, 1, figsize=(11, 6))
 
         trajectory = model.compute_individual_trajectory(timepoints, indiv_parameters).squeeze()
+
+        if model.loss == 'ordinal':
+            trajectory = trajectory[..., 0]
+
         for dim in range(model.dimension):
             ax.plot(timepoints, trajectory[:, dim], c=colors[dim], label=labels[dim])
 
@@ -277,6 +291,8 @@ class Plotter:
         fig, ax = plt.subplots(1, 1)
 
         patient_values = model.compute_individual_tensorized(data.timepoints, param_ind, attribute_type)
+        if model.loss == 'ordinal':
+            patient_values = patient_values[..., 0]
 
         if type(max_patient_number) == int:
             patients_list = range(max_patient_number)
@@ -305,7 +321,7 @@ class Plotter:
                                  100)
         timepoints = torch.Tensor([timepoints])
         patient_values = model.compute_mean_traj(timepoints)
-        for i in range(patient_values.shape[-1]):
+        for i in range(patient_values.shape[2]):
             ax.plot(timepoints[0, :].detach().numpy(), patient_values[0, :, i].detach().numpy(),
                     c="black", linewidth=3, alpha=0.3)
 
@@ -346,7 +362,7 @@ class Plotter:
 
         for i, key in enumerate(model.parameters.keys()):
 
-            if key not in ['betas']:
+            if key not in ['betas', 'deltas']:
                 import_path = os.path.join(path, key + ".csv")
                 df_convergence = pd.read_csv(import_path, index_col=0, header=None)
                 df_convergence.index.rename("iter", inplace=True)
@@ -377,7 +393,7 @@ class Plotter:
         y_position = 0
         df_convergence.plot(ax=ax[y_position], legend=False)
         ax[y_position].set_title('noise_std')
-        ax[y_position].set_yscale("log", nonposy='clip')
+        ax[y_position].set_yscale("log")
         plt.grid(True)
 
         if model.loss == 'crossentropy':
@@ -387,12 +403,12 @@ class Plotter:
             y_position = 1
             df_convergence.plot(ax=ax[y_position], legend=False)
             ax[y_position].set_title('crossentropy')
-            ax[y_position].set_yscale("log", nonposy='clip')
+            ax[y_position].set_yscale("log")
             plt.grid(True)
 
         for i, key in enumerate(reals_pop_name):
             y_position += 1
-            if key not in ['betas']:
+            if key not in ['betas', 'deltas']:
                 import_path = os.path.join(path, key + ".csv")
                 df_convergence = pd.read_csv(import_path, index_col=0, header=None)
                 df_convergence.index.rename("iter", inplace=True)
@@ -400,6 +416,14 @@ class Plotter:
                 ax[y_position].set_title(key)
             if key in ['betas']:
                 for source_dim in range(model.source_dimension):
+                    import_path = os.path.join(path, key + "_" + str(source_dim) + ".csv")
+                    df_convergence = pd.read_csv(import_path, index_col=0, header=None)
+                    df_convergence.index.rename("iter", inplace=True)
+                    df_convergence.plot(ax=ax[y_position], legend=False)
+                    ax[y_position].set_title(key)
+            if key in ['deltas']:
+                max_level = max([feat["nb_levels"] for feat in model.ordinal_infos])
+                for source_dim in range(max_level-1):
                     import_path = os.path.join(path, key + "_" + str(source_dim) + ".csv")
                     df_convergence = pd.read_csv(import_path, index_col=0, header=None)
                     df_convergence.index.rename("iter", inplace=True)

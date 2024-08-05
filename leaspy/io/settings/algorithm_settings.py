@@ -152,10 +152,10 @@ class AlgorithmSettings:
         if not 'loss' in settings:
             # Return default value for the loss (Mean Squared Error)
             return 'MSE'
-        if settings['loss'].lower() in ['mse', 'crossentropy']:
+        if settings['loss'].lower() in ['mse', 'crossentropy', 'ordinal']:
             return settings['loss']
         else:
-            raise ValueError("The loss provided is not recognised. Should be one of [\'MSE\', \'crossentropy\']")
+            raise ValueError("The loss provided is not recognised. Should be one of [\'MSE\', \'crossentropy\', \'ordinal\']")
 
     def save(self, path):
 

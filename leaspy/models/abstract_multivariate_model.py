@@ -33,13 +33,6 @@ class AbstractMultivariateModel(AbstractModel):
             }
         }
 
-    def smart_initialization_realizations(self, data, realizations):
-        # TODO : Qui a fait ça? A quoi ça sert?
-        # means_time = torch.Tensor([torch.mean(data.get_times_patient(i)) for
-        # i in range(data.n_individuals)]).reshape(realizations['tau'].tensor_realizations.shape)
-        # realizations['tau'].tensor_realizations = means_time
-        return realizations
-
     def initialize(self, dataset, method="default"):
         self.dimension = dataset.dimension
         self.features = dataset.headers

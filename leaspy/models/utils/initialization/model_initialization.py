@@ -1,5 +1,6 @@
 import torch
 from scipy import stats
+from ..attributes.attributes_factory import AttributesFactory
 
 
 def initialize_parameters(model, dataset, method="default"):
@@ -25,6 +26,8 @@ def initialize_parameters(model, dataset, method="default"):
     name = model.name
     if name == 'logistic':
         parameters = initialize_logistic(model, dataset, method)
+    elif name == 'logistic_mixture':
+        parameters = initialize_logistic_mixture(model, dataset, method)
     elif name == 'logistic_parallel':
         parameters = initialize_logistic_parallel(model, dataset, method)
     elif name == 'linear':
@@ -104,6 +107,26 @@ def initialize_logistic(model, dataset, method):
 
     return parameters
 
+def initialize_logistic_mixture(model, dataset, method):
+
+    parameters = initialize_logistic(model, dataset, method)
+
+    parameters["tau_xi_mean"] = torch.tensor([parameters['tau_mean'], parameters['xi_mean']])
+    parameters["tau_xi_std"] = 0.05
+
+    for k in range(model.nb_clusters):
+        parameters[f'tau_xi_{k}_mean'] = torch.tensor([torch.normal(parameters['tau_mean'], parameters['tau_std']),
+                                                    torch.normal(parameters['xi_mean'], parameters['xi_std'])])
+        parameters[f'tau_xi_{k}_std'] = torch.tensor([[1., 0.],
+                                                   [0., 0.05]],
+                                                  )
+        parameters[f'tau_xi_{k}_std_inv'] = torch.tensor([[1., 0.],
+                                                       [0., 20.]],
+                                                      )
+
+    parameters["pi"] = 1./model.nb_clusters * torch.ones(model.nb_clusters)
+
+    return parameters
 
 def initialize_logistic_parallel(model, dataset, method):
     """
@@ -141,7 +164,7 @@ def initialize_logistic_parallel(model, dataset, method):
             'sources_mean': torch.tensor(0.),
             'sources_std': torch.tensor(1.),
             'noise_std': torch.tensor([0.1], dtype=torch.float32),
-            'deltas': torch.tensor([0.0] * (model.dimension - 1), dtype=torch.float32),
+            'deltas': torch.tensor([0.] * (model.dimension - 1), dtype=torch.float32),
             'betas': betas
         }
 
@@ -174,7 +197,7 @@ def initialize_logistic_parallel(model, dataset, method):
             'xi_mean': torch.mean(v0_array).detach(), 'xi_std': torch.tensor(0.1, dtype=torch.float32),
             'sources_mean': torch.tensor(0.), 'sources_std': torch.tensor(1.),
             'noise_std': torch.tensor([0.1], dtype=torch.float32),
-            'deltas': torch.tensor([0.0] * (model.dimension - 1), dtype=torch.float32),
+            'deltas': torch.tensor([0.] * (model.dimension - 1), dtype=torch.float32),
             'betas': betas
         }
 
@@ -343,6 +366,25 @@ def compute_patient_time_distribution(data):
     df.set_index(["ID", "TIME"], inplace=True)
     return torch.mean(torch.tensor(df.index.get_level_values('TIME').tolist())), \
            torch.std(torch.tensor(df.index.get_level_values('TIME').tolist()))
+
+def initialize_ordinal(model, data, algo_parameters):
+    if "ordinal_infos" in algo_parameters:
+        ord = algo_parameters["ordinal_infos"]
+    else:
+        ord = []
+        df = data.to_pandas()
+        for col in data.headers:
+            max_level = int(df[col].max())
+            ord.append({"name" : col, "nb_levels": max_level})
+    model.ordinal_infos = ord
+    max_level = max([feat["nb_levels"] for feat in ord])
+    deltas_ = torch.zeros((model.dimension, max_level - 1))
+    if not 'deltas' in model.parameters:
+        model.parameters["deltas"] = deltas_
+    model.attributes = AttributesFactory.attributes(model.name, model.dimension,
+                                                    model.source_dimension, ord)
+    model.attributes.update(['all'], model.parameters)
+    model.is_initialized = True
 
 
 '''

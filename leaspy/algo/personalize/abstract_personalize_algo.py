@@ -83,8 +83,11 @@ class AbstractPersonalizeAlgo(AbstractAlgo):
 
         # Compute the noise with the estimated individual parameters
         _, dict_pytorch = individual_parameters.to_pytorch()
-        squared_diff = model.compute_sum_squared_tensorized(data, dict_pytorch).sum()
-        noise_std = math.sqrt(squared_diff.detach().item() / data.n_observations)
+        if self.loss == "MSE":
+            squared_diff = model.compute_sum_squared_tensorized(data, dict_pytorch).sum()
+            noise_std = math.sqrt(squared_diff.detach().item() / data.n_observations)
+        else:
+            noise_std = "TODO compute_attachment for other losses"
 
         # Print run infos
         time_end = time.time()
