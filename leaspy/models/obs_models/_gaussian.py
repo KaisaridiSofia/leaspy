@@ -75,7 +75,9 @@ class FullGaussianObservationModel(GaussianObservationModel):
     def y_getter(dataset: Dataset) -> WeightedTensor:
         assert dataset.values is not None
         assert dataset.mask is not None
-        return WeightedTensor(dataset.values, weight=dataset.mask.to(torch.bool))
+        weights = dataset.mask.to(torch.bool)
+        weights = weights/weights.sum(1).unsqueeze(1).expand(weights.shape)*weights.shape[1]
+        return WeightedTensor(dataset.values, weight=weights)
 
     @classmethod
     def noise_std_suff_stats(cls) -> Dict[VarName, LinkedVariable]:

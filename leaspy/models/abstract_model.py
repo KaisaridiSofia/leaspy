@@ -980,9 +980,12 @@ class AbstractModel(BaseModel):
 
     def put_data_variables(self, state: State, dataset: Dataset) -> None:
         """Put all the needed data variables inside the provided state (in-place)."""
+
+        weights = dataset.mask.to(torch.bool).any(dim=LVL_FT)
+        weights = weights / weights.sum(1).unsqueeze(1).expand(weights.shape)*weights.shape[1]
         self._put_data_timepoints(
             state,
-            WeightedTensor(dataset.timepoints, dataset.mask.to(torch.bool).any(dim=LVL_FT))
+            WeightedTensor(dataset.timepoints, weights)
         )
         for obs_model in self.obs_models:
             state[obs_model.name] = obs_model.getter(dataset)
