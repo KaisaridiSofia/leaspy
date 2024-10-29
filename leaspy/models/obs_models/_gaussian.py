@@ -76,8 +76,10 @@ class FullGaussianObservationModel(GaussianObservationModel):
         assert dataset.values is not None
         assert dataset.mask is not None
         weights = dataset.mask.to(torch.bool)
-        weights = weights/weights.sum(1).unsqueeze(1).expand(weights.shape)*weights.shape[1]
-        return WeightedTensor(dataset.values, weight=weights)
+        average_nb_visits = weights.sum(1).to(float).mean(0).unsqueeze(1).expand(weights.shape)
+        nb_visits_per_patients = weights.sum(1).unsqueeze(1).expand(weights.shape)
+        weights_remastered = (weights/nb_visits_per_patients)*average_nb_visits
+        return WeightedTensor(dataset.values, weight=weights_remastered)
 
     @classmethod
     def noise_std_suff_stats(cls) -> Dict[VarName, LinkedVariable]:
@@ -100,9 +102,7 @@ class FullGaussianObservationModel(GaussianObservationModel):
         n_obs = state["n_obs"]
         # TODO? by linearity couldn't we only require `-2*y_x_model + model_x_model` as summary stat?
         # and couldn't we even collect the already summed version of it?
-        s1 = sum_dim(y_x_model)
-        s2 = sum_dim(model_x_model)
-        noise_var = (y_l2 - 2 * s1 + s2) / n_obs.float()
+        noise_var = (y_l2 + sum_dim(- 2 * y_x_model + model_x_model)) / n_obs.float()
         return compute_std_from_variance(
             noise_var,
             varname="noise_std",
