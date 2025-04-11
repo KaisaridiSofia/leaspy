@@ -1,11 +1,12 @@
 import math
 import warnings
 from abc import abstractmethod
-from typing import Iterable, Optional, Dict
+from typing import Dict, Iterable, Optional
 
 import numpy as np
 import pandas as pd
 import torch
+from pandas import Categorical
 
 from leaspy.exceptions import LeaspyInputError, LeaspyModelInputError
 from leaspy.io.data.dataset import Dataset
@@ -13,29 +14,23 @@ from leaspy.models.abstract_model import AbstractModel, InitializationMethod
 from leaspy.models.abstract_multivariate_model import AbstractMultivariateModel
 from leaspy.models.base import InitializationMethod
 from leaspy.models.multivariate import LogisticMultivariateModel
-from pandas import Categorical
-
 from leaspy.models.obs_models import (
     FullGaussianObservationModel,
-    MixtureGaussianObservationModel,
     observation_model_factory,
 )
 from leaspy.utils.docs import doc_with_super
 from leaspy.utils.functional import Exp, MatMul, OrthoBasis, Prod, Sqr, Sum
 from leaspy.utils.typing import KwargsType, Optional
-
-# from sympy import Product
-# from sympy.codegen.cnodes import union
-# from torch.distributions import MixtureSameFamily
 from leaspy.utils.weighted_tensor import (
     TensorOrWeightedTensor,
     WeightedTensor,
     unsqueeze_right,
 )
-from leaspy.variables.distributions import MixtureNormal, Normal, MultivariateNormal
-#from torch.distributions import Categorical as TorchCategorical
+from leaspy.variables.distributions import MixtureNormal, MultivariateNormal, Normal
 from leaspy.variables.distributions import MultinomialDistribution as Multinomial
-from leaspy.variables.specs import (#
+from leaspy.variables.specs import (  #
+    LVL_FT,
+    Collect,
     Hyperparameter,
     IndividualLatentVariable,
     LinkedVariable,
@@ -43,14 +38,9 @@ from leaspy.variables.specs import (#
     NamedVariables,
     PopulationLatentVariable,
     SuffStatsRW,
-    VariablesValuesRO,
-)
-
-from leaspy.variables.specs import (
-    LVL_FT,
-    Collect,
     VariableInterface,
-    VarName,
+    VariableName,
+    VariableNameToValueMapping,
 )
 from leaspy.variables.state import State
 
@@ -72,7 +62,7 @@ class AbstractMultivariateMixtureModel(AbstractModel):
 
     @property
     def xi_mean(self) -> torch.Tensor:
-        #return torch.tensor([self._xi_mean] * self.n_clusters)
+        # return torch.tensor([self._xi_mean] * self.n_clusters)
         return torch.tensor([2 if i % 2 == 0 else -2 for i in range(self.n_clusters)])
 
     @property
@@ -89,26 +79,28 @@ class AbstractMultivariateMixtureModel(AbstractModel):
 
     @property
     def sources_mean(self) -> torch.Tensor:
-        #return torch.zeros(self.source_dimension, self.n_clusters)  # be careful with the dimensions
-        return torch.tensor([[1 if (i + j) % 2 == 0 else -1 for j in range(self.n_clusters)]
-                             for i in range(self.source_dimension)])
+        # return torch.zeros(self.source_dimension, self.n_clusters)  # be careful with the dimensions
+        return torch.tensor(
+            [
+                [1 if (i + j) % 2 == 0 else -1 for j in range(self.n_clusters)]
+                for i in range(self.source_dimension)
+            ]
+        )
 
     @property
     def sources_std(self) -> torch.Tensor:
-        return torch.ones(
-            self.source_dimension, self.n_clusters
-        )
+        return torch.ones(self.source_dimension, self.n_clusters)
 
-        #@property
-    #def sources_std(self) -> torch.Tensor:
+        # @property
+
+    # def sources_std(self) -> torch.Tensor:
     #    return torch.Tensor(
     #        [self._sources_std] * self.n_clusters
     #    )  # not sure it's working, it was float before
 
-    #@property
-    #def sources_std(self) -> float:
+    # @property
+    # def sources_std(self) -> float:
     #    return self._sources_std
-
 
     def __init__(self, name: str, **kwargs):
         # n_clusters = kwargs.get('n_clusters', None)
@@ -123,9 +115,9 @@ class AbstractMultivariateMixtureModel(AbstractModel):
             dimension = len(kwargs["features"])
         observation_models = kwargs.get("obs_models", None)
         if observation_models is None:
-            #observation_models = "mixture-gaussian"
+            # observation_models = "mixture-gaussian"
             observation_models = "gaussian-diagonal"
-        #if observation_models == "mixture-gaussian":
+        # if observation_models == "mixture-gaussian":
         if observation_models == "gaussian-diagonal":
             if n_clusters < 2:
                 raise LeaspyInputError(
@@ -170,19 +162,25 @@ class AbstractMultivariateMixtureModel(AbstractModel):
 
         d.update(
             # PRIORS
-            tau_mean=ModelParameter.for_ind_mean_mixture("tau", shape=(self.n_clusters,)),
+            tau_mean=ModelParameter.for_ind_mean_mixture(
+                "tau", shape=(self.n_clusters,)
+            ),
             tau_std=ModelParameter.for_ind_std_mixture("tau", shape=(self.n_clusters,)),
             xi_mean=ModelParameter.for_ind_mean_mixture("xi", shape=(self.n_clusters,)),
             xi_std=ModelParameter.for_ind_std_mixture("xi", shape=(self.n_clusters,)),
-            probs = ModelParameter.for_probs(shape=self.n_clusters),
+            probs=ModelParameter.for_probs(shape=self.n_clusters),
             # LATENT VARS
-            xi=IndividualLatentVariable(MixtureNormal("xi_mean", "xi_std", "probs"),
-                                        sampling_kws={"scale": 10},),
-            tau=IndividualLatentVariable(MixtureNormal("tau_mean", "tau_std", "probs"),
-                                         sampling_kws={"scale": 10},),
+            xi=IndividualLatentVariable(
+                MixtureNormal("xi_mean", "xi_std", "probs"),
+                sampling_kws={"scale": 10},
+            ),
+            tau=IndividualLatentVariable(
+                MixtureNormal("tau_mean", "tau_std", "probs"),
+                sampling_kws={"scale": 10},
+            ),
             # DERIVED VARS
             alpha=LinkedVariable(Exp("xi")),
-            #probs=LinkedVariable(self.compute_probs),
+            # probs=LinkedVariable(self.compute_probs),
         )
 
         if self.source_dimension >= 1:
@@ -195,21 +193,26 @@ class AbstractMultivariateMixtureModel(AbstractModel):
                 betas_std=Hyperparameter(0.01),
                 sources_mean=ModelParameter.for_ind_mean_mixture(
                     "sources",
-                    shape=(self.source_dimension, self.n_clusters,),
+                    shape=(
+                        self.source_dimension,
+                        self.n_clusters,
+                    ),
                 ),
-                #sources_std=Hyperparameter(self.sources_std),
+                # sources_std=Hyperparameter(self.sources_std),
                 sources_std=Hyperparameter(1.0),
                 # LATENT VARS
                 betas=PopulationLatentVariable(
                     Normal("betas_mean", "betas_std"),
                     sampling_kws={"scale": 0.5},
                 ),
-                sources=IndividualLatentVariable(MixtureNormal("sources_mean", "sources_std", "probs"),
-                                                 sampling_kws={"scale": 10}),
-                #sources=IndividualLatentVariable(MultivariateNormal(
+                sources=IndividualLatentVariable(
+                    MixtureNormal("sources_mean", "sources_std", "probs"),
+                    sampling_kws={"scale": 10},
+                ),
+                # sources=IndividualLatentVariable(MultivariateNormal(
                 #    "sources_mean", "sources_std"
-                #)
-                #),
+                # )
+                # ),
                 # DERIVED VARS
                 mixing_matrix=LinkedVariable(
                     MatMul("orthonormal_basis", "betas").then(torch.t)
@@ -291,16 +294,16 @@ class AbstractMultivariateMixtureModel(AbstractModel):
             )
 
         # Set the right initialisation point fpr barrier methods -JOINTMODEL
-        #df_inter = pd.concat(
+        # df_inter = pd.concat(
         #    [df["EVENT_TIME"] - self.init_tolerance, df_ind["tau"]], axis=1
-        #)
-        #df_ind["tau"] = df_inter.min(axis=1)
+        # )
+        # df_ind["tau"] = df_inter.min(axis=1)
 
         if self.source_dimension > 0:
             for i in range(self.source_dimension):
                 df_ind[f"sources_{i}"] = 0.0
 
-        #if self.n_clusters > 0:
+        # if self.n_clusters > 0:
         #    for i in range(self.n_clusters):
         #        df_ind[f"probs_{i}"] = 1/self.n_clusters
 
@@ -407,8 +410,8 @@ class MultivariateMixtureModel(AbstractMultivariateMixtureModel):
             "nll_regul_all_sum",
             "nll_tot",
             # specific to the mixture model :
-            #"probs",
-            #"probs_ind",
+            # "probs",
+            # "probs_ind",
             ##"nll_attach_ind",
             ##"nll_regul_tau",
             ##"nll_regul_tau_ind",
@@ -531,7 +534,7 @@ class LogisticMultivariateMixtureInitializationMixin:
         self,
         dataset: Dataset,
         method: InitializationMethod,
-    ) -> VariablesValuesRO:
+    ) -> VariableNameToValueMapping:
         """Compute initial values for model parameters."""
         from leaspy.models.utilities import (
             compute_patient_slopes_distribution,
@@ -544,8 +547,8 @@ class LogisticMultivariateMixtureInitializationMixin:
         # initialize a df with the probabilities of each individual belonging to each cluster
         n_inds = dataset.to_pandas().reset_index("TIME").groupby("ID").min().shape[0]
         n_clusters = self.n_clusters
-        #probs_ind = torch.ones(n_inds, n_clusters) / n_clusters
-        #probs = probs_ind.sum(axis=0) / n_inds
+        # probs_ind = torch.ones(n_inds, n_clusters) / n_clusters
+        # probs = probs_ind.sum(axis=0) / n_inds
         probs = torch.ones(n_clusters) / n_clusters
 
         df = self._get_dataframe_from_dataset(dataset)
@@ -563,21 +566,6 @@ class LogisticMultivariateMixtureInitializationMixin:
             betas = torch.distributions.normal.Normal(loc=0.0, scale=1.0).sample(
                 sample_shape=(self.dimension - 1, self.source_dimension)
             )
-
-        #probs_ind_df = pd.concat(
-        #    [
-        #        pd.DataFrame({"ID": np.arange(1, n_inds + 1, 1)}),
-        #        pd.DataFrame(probs_ind),
-        #    ],
-        #    axis=1,
-        #    join="outer",
-        #)
-        #for c in range(n_clusters):
-        #    probs_ind_df = probs_ind_df.rename(
-        #        columns={c: "prob_cluster_" + str(c + 1)}
-        #    )
-
-        # df = pd.concat([df, probs_ind_df], axis=1, join="outer")
 
         step = math.ceil(n_inds / n_clusters)
         start = 0
@@ -621,7 +609,7 @@ class LogisticMultivariateMixtureInitializationMixin:
             "tau_std": self.tau_std,
             "xi_mean": self.xi_mean,
             "xi_std": self.xi_std,
-            #"probs_ind": probs_ind,
+            # "probs_ind": probs_ind,
             "probs": probs,
         }
         if self.source_dimension >= 1:
@@ -631,7 +619,7 @@ class LogisticMultivariateMixtureInitializationMixin:
                 str(p): torch_round(v.to(torch.float32)) for p, v in parameters.items()
             }
             obs_model = next(iter(self.obs_models))  # WIP: multiple obs models...
-            #if isinstance(obs_model, MixtureGaussianObservationModel):
+            # if isinstance(obs_model, MixtureGaussianObservationModel):
             if isinstance(obs_model, FullGaussianObservationModel):
                 rounded_parameters["noise_std"] = self.noise_std.expand(
                     obs_model.extra_vars["noise_std"].shape
@@ -687,5 +675,3 @@ class LogisticMultivariateMixtureModel(
             w_model_logit, fill_value=0.0
         )
         return WeightedTensor(torch.sigmoid(model_logit), weights).weighted_value
-
-

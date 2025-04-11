@@ -13,7 +13,6 @@ from ._weibull import (
     WeibullRightCensoredObservationModel,
     WeibullRightCensoredWithSourcesObservationModel,
 )
-from ._mixture_gaussian import MixtureGaussianObservationModel
 
 __all__ = [
     "BernoulliObservationModel",
@@ -28,5 +27,4 @@ __all__ = [
     "AbstractWeibullRightCensoredObservationModel",
     "WeibullRightCensoredObservationModel",
     "WeibullRightCensoredWithSourcesObservationModel",
-    "MixtureGaussianObservationModel",
 ]

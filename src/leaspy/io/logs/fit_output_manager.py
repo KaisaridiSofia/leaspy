@@ -100,14 +100,14 @@ class FitOutputManager:
                 self.print_model_statistics(model)
                 self.print_time()
 
-        if self.periodicity_save is not None:
-            if iteration == 0 or iteration % self.periodicity_save == 0:
-                self.save_plot_patient_reconstructions(iteration, model, data)
-                self.save_model_parameters_convergence(iteration, model)
+        # if self.periodicity_save is not None:
+        #    if iteration == 0 or iteration % self.periodicity_save == 0:
+        #        self.save_plot_patient_reconstructions(iteration, model, data)
+        #        self.save_model_parameters_convergence(iteration, model)
 
-        if self.periodicity_plot is not None:
-            if iteration % self.periodicity_plot == 0:
-                self.save_plot_convergence_model_parameters(model)
+        # if self.periodicity_plot is not None:
+        #    if iteration % self.periodicity_plot == 0:
+        #        self.save_plot_convergence_model_parameters(model)
 
     def print_time(self):
         """
