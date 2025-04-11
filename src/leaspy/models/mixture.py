@@ -91,22 +91,7 @@ class AbstractMultivariateMixtureModel(AbstractModel):
     def sources_std(self) -> torch.Tensor:
         return torch.ones(self.source_dimension, self.n_clusters)
 
-        # @property
-
-    # def sources_std(self) -> torch.Tensor:
-    #    return torch.Tensor(
-    #        [self._sources_std] * self.n_clusters
-    #    )  # not sure it's working, it was float before
-
-    # @property
-    # def sources_std(self) -> float:
-    #    return self._sources_std
-
     def __init__(self, name: str, **kwargs):
-        # n_clusters = kwargs.get('n_clusters', None)
-        # kwargs["obs_models"] = (observation_model_factory(observation_models, n_clusters=n_clusters, dimension=dimension),)
-        # not sure how to treat n_clusters
-
         self.source_dimension: Optional[int] = None
 
         dimension = kwargs.get("dimension", None)
@@ -115,9 +100,7 @@ class AbstractMultivariateMixtureModel(AbstractModel):
             dimension = len(kwargs["features"])
         observation_models = kwargs.get("obs_models", None)
         if observation_models is None:
-            # observation_models = "mixture-gaussian"
             observation_models = "gaussian-diagonal"
-        # if observation_models == "mixture-gaussian":
         if observation_models == "gaussian-diagonal":
             if n_clusters < 2:
                 raise LeaspyInputError(
@@ -293,19 +276,9 @@ class AbstractMultivariateMixtureModel(AbstractModel):
                 index=df.index,
             )
 
-        # Set the right initialisation point fpr barrier methods -JOINTMODEL
-        # df_inter = pd.concat(
-        #    [df["EVENT_TIME"] - self.init_tolerance, df_ind["tau"]], axis=1
-        # )
-        # df_ind["tau"] = df_inter.min(axis=1)
-
         if self.source_dimension > 0:
             for i in range(self.source_dimension):
                 df_ind[f"sources_{i}"] = 0.0
-
-        # if self.n_clusters > 0:
-        #    for i in range(self.n_clusters):
-        #        df_ind[f"probs_{i}"] = 1/self.n_clusters
 
         with state.auto_fork(None):
             state.put_individual_latent_variables(df=df_ind)
@@ -548,7 +521,6 @@ class LogisticMultivariateMixtureInitializationMixin:
         n_inds = dataset.to_pandas().reset_index("TIME").groupby("ID").min().shape[0]
         n_clusters = self.n_clusters
         # probs_ind = torch.ones(n_inds, n_clusters) / n_clusters
-        # probs = probs_ind.sum(axis=0) / n_inds
         probs = torch.ones(n_clusters) / n_clusters
 
         df = self._get_dataframe_from_dataset(dataset)
