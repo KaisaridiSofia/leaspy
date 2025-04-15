@@ -34,9 +34,8 @@ __all__ = [
     "Ordinal",
     "WeibullRightCensored",
     "WeibullRightCensoredWithSources",
-    # "CategoricalFamily",
     "MixtureNormalFamily",
-    "MultivariateNormalFamily"
+    "MultivariateNormalFamily",
 ]
 
 
@@ -146,7 +145,7 @@ class StatelessDistributionFamily(ABC):
     ) -> WeightedTensor[float]:
         """Negative log-likelihood of value, given distribution parameters."""
 
-        if isinstance (x, Tensor):
+        if isinstance(x, Tensor):
             regul = cls._nll(WeightedTensor(x), *params)
         else:
             regul = cls._nll(x, *params)
@@ -398,6 +397,7 @@ class NormalFamily(StatelessDistributionFamilyFromTorchDistribution):
     # def sample(cls, loc, scale, *, sample_shape = ()):
     #    # Hardcode method for efficiency? (<!> broadcasting)
 
+
 class MultivariateNormalFamily(StatelessDistributionFamily):
     """Multivariate Normal family with diagonal covariance (stateless)."""
 
@@ -406,16 +406,17 @@ class MultivariateNormalFamily(StatelessDistributionFamily):
     nll_constant_standard: ClassVar = 0.5 * torch.log(2 * torch.tensor(math.pi))
 
     @classmethod
-    def multi_dist_factory(cls,
-                     loc: torch.Tensor,
-                     scale: torch.Tensor,
-                     ) -> MultivariateNormal:
-
+    def multi_dist_factory(
+        cls,
+        loc: torch.Tensor,
+        scale: torch.Tensor,
+    ) -> MultivariateNormal:
         loc = torch.tensor(loc, dtype=torch.float32)
         scale = torch.diag(scale)
         scale = torch.tensor(scale, dtype=torch.float32)
 
         return MultivariateNormal(loc, scale)
+
     """
     @classmethod
     def sample(
@@ -429,6 +430,7 @@ class MultivariateNormalFamily(StatelessDistributionFamily):
 
         return multi_dist.sample(sample_shape)
     """
+
     @classmethod
     def mode(cls, loc: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
         return loc  # mode = mean for Gaussian
@@ -445,23 +447,22 @@ class MultivariateNormalFamily(StatelessDistributionFamily):
     def _nll(
         cls, x: WeightedTensor, loc: torch.Tensor, scale: torch.Tensor
     ) -> WeightedTensor:
-
         if x.value.ndimension() != loc.ndimension():
-            if loc.ndimension()==1:
+            if loc.ndimension() == 1:
                 x_value_expanded = x.value.unsqueeze(1).repeat(1, loc.shape[0], 1, 1)
-                #x_weight_expanded = x.weight.unsqueeze(1).repeat(1, loc.shape[0], 1, 1)
+                # x_weight_expanded = x.weight.unsqueeze(1).repeat(1, loc.shape[0], 1, 1)
                 x = WeightedTensor(x_value_expanded)
             else:
                 x_value_expanded = x.value.unsqueeze(1).repeat(1, loc.shape[1], 1, 1)
                 x_weight_expanded = x.weight.unsqueeze(1).repeat(1, loc.shape[1], 1, 1)
                 x = WeightedTensor(x_value_expanded, x_weight_expanded)
 
-        #print('loc.shape : ', loc.shape)
+        # print('loc.shape : ', loc.shape)
         z = (x.value - loc) / scale
         LOG_2PI = torch.log(torch.tensor(2 * torch.pi))
 
-        nll = 0.5 * z ** 2 + torch.log(scale) + LOG_2PI
-        #nll = 0.5 * torch.sum(z**2 + 2 * torch.log(scale) + torch.log(2 * torch.pi), dim=-1)
+        nll = 0.5 * z**2 + torch.log(scale) + LOG_2PI
+        # nll = 0.5 * torch.sum(z**2 + 2 * torch.log(scale) + torch.log(2 * torch.pi), dim=-1)
         if x.value.ndimension() != nll.ndimension():
             x_value_expanded = x.value.unsqueeze(1).repeat(1, x.shape[0], 1, 1)
             x_weight_expanded = x.weight.unsqueeze(1).repeat(1, x.shape[0], 1, 1)
@@ -470,7 +471,7 @@ class MultivariateNormalFamily(StatelessDistributionFamily):
             z = (x.value - loc) / scale
             LOG_2PI = torch.log(torch.tensor(2 * torch.pi))
 
-            nll = 0.5 * z ** 2 + torch.log(scale) + LOG_2PI
+            nll = 0.5 * z**2 + torch.log(scale) + LOG_2PI
 
         return WeightedTensor(nll, x.weight)
 
@@ -492,8 +493,8 @@ class MultivariateNormalFamily(StatelessDistributionFamily):
         z = (x.value - loc) / scale
         LOG_2PI = torch.log(torch.tensor(2 * torch.pi))
 
-        nll = 0.5 * z ** 2 + torch.log(scale) + LOG_2PI
-        #nll = 0.5 * torch.sum(z**2 + 2 * torch.log(scale) + torch.log(2 * torch.pi), dim=-1)
+        nll = 0.5 * z**2 + torch.log(scale) + LOG_2PI
+        # nll = 0.5 * torch.sum(z**2 + 2 * torch.log(scale) + torch.log(2 * torch.pi), dim=-1)
         grad = z / scale
         return WeightedTensor(nll, x.weight), WeightedTensor(grad, x.weight)
 
@@ -546,11 +547,13 @@ class MixtureNormalFamily(StatelessDistributionFamily):
         )
 
     @classmethod
-    def sample(cls, *params: torch.Tensor, sample_shape: tuple[int, ...] = ()) -> torch.Tensor:
+    def sample(
+        cls, *params: torch.Tensor, sample_shape: tuple[int, ...] = ()
+    ) -> torch.Tensor:
         dist = cls.dist_factory(*params)
 
         return dist.sample(sample_shape)
-        #return dist.sample([1])
+        # return dist.sample([1])
 
     @classmethod
     def set_component_distribution(
@@ -585,27 +588,43 @@ class MixtureNormalFamily(StatelessDistributionFamily):
     @classmethod
     def extract_cluster_parameters(
         cls,
-        which_cluster: int,
+        index: int,
     ) -> tuple[Tensor, Tensor, Tensor]:
         """Return the parameters for a specific cluster."""
-        prob = torch.Tensor(cls.extract_probs)[which_cluster]
-        loc = torch.Tensor(cls.mean)[which_cluster]
-        scale = torch.Tensor(cls.stddev)[which_cluster]
+        prob = torch.Tensor(cls.extract_probs)[index]
+        loc = torch.Tensor(cls.mean)[index]
+        scale = torch.Tensor(cls.stddev)[index]
         return prob, loc, scale
 
     @classmethod
-    def mode(cls, x: WeightedTensor, probs: torch.Tensor,) -> torch.Tensor:
+    def mode(
+        cls,
+        x: WeightedTensor,
+        probs: torch.Tensor,
+    ) -> torch.Tensor:
+        return (probs * x.value).mode(dim=0)
 
+    @classmethod
+    def mean(
+        cls,
+        x: WeightedTensor,
+        probs: torch.Tensor,
+    ) -> torch.Tensor:
         return (probs * x.value).mode(dim=0)
 
     @classmethod
     def _nll(
-            cls, x: WeightedTensor, loc: torch.Tensor, scale: torch.Tensor, probs: torch.Tensor,
+        cls,
+        x: WeightedTensor,
+        loc: torch.Tensor,
+        scale: torch.Tensor,
+        probs: torch.Tensor,
     ) -> WeightedTensor:
-
         z_list = []
 
-        if loc.ndim > 1:  # for sources !will need modification if we mess with the sources_std as well
+        if (
+            loc.ndim > 1
+        ):  # for sources !will need modification if we mess with the sources_std as well
             n_clusters = loc.shape[1]
 
             for i in range(n_clusters):
@@ -618,28 +637,38 @@ class MixtureNormalFamily(StatelessDistributionFamily):
             n_clusters = loc.shape[0]
 
             for i in range(n_clusters):
-                #print(scale)
-                z_cluster = ((x.value - loc[i]) / scale[i]).squeeze(1)  # shape: [n_inds]
+                # print(scale)
+                z_cluster = ((x.value - loc[i]) / scale[i]).squeeze(
+                    1
+                )  # shape: [n_inds]
                 z_list.append(z_cluster)
 
             z = torch.stack(z_list, dim=1)  # shape: [n_inds,n_clusters]
 
-        return WeightedTensor((0.5 * z ** 2
-                               + torch.log(scale)
-                               + cls.nll_constant_standard),x.weight,)
+        return WeightedTensor(
+            (0.5 * z**2 + torch.log(scale) + cls.nll_constant_standard),
+            x.weight,
+        )
 
     @classmethod
     def _nll_jacobian(
-            cls, x: WeightedTensor, loc: torch.Tensor, scale: torch.Tensor, probs:torch.Tensor,
+        cls,
+        x: WeightedTensor,
+        loc: torch.Tensor,
+        scale: torch.Tensor,
+        probs: torch.Tensor,
     ) -> WeightedTensor:
-
         z_list = []
 
-        if loc.ndim > 1:  # for sources !will need modification if we mess with the sources_std as well
+        if (
+            loc.ndim > 1
+        ):  # for sources !will need modification if we mess with the sources_std as well
             n_clusters = loc.shape[1]
 
             for i in range(n_clusters):
-                z_cluster = (x.value - loc[:, i]) / scale ** 2 # shape: [n_inds, n_sources]
+                z_cluster = (
+                    x.value - loc[:, i]
+                ) / scale**2  # shape: [n_inds, n_sources]
                 z_list.append(z_cluster)
 
             z = torch.stack(z_list, dim=-1)  # shape: [n_inds, n_sources, n_clusters]
@@ -648,7 +677,9 @@ class MixtureNormalFamily(StatelessDistributionFamily):
             n_clusters = loc.shape[0]
 
             for i in range(n_clusters):
-                z_cluster = ((x.value - loc[i]) / scale[i] ** 2).squeeze(1)  # shape: [n_inds]
+                z_cluster = ((x.value - loc[i]) / scale[i] ** 2).squeeze(
+                    1
+                )  # shape: [n_inds]
                 z_list.append(z_cluster)
 
             z = torch.stack(z_list, dim=1)  # shape: [n_inds,n_clusters]
@@ -657,15 +688,17 @@ class MixtureNormalFamily(StatelessDistributionFamily):
 
     @classmethod
     def _nll_and_jacobian(
-            cls,
-            x: WeightedTensor,
-            loc: torch.Tensor,
-            scale: torch.Tensor,
-            probs: torch.Tensor,
+        cls,
+        x: WeightedTensor,
+        loc: torch.Tensor,
+        scale: torch.Tensor,
+        probs: torch.Tensor,
     ) -> tuple[WeightedTensor, WeightedTensor]:
         z_list = []
 
-        if loc.ndim > 1:  # for sources !will need modification if we mess with the sources_std as well
+        if (
+            loc.ndim > 1
+        ):  # for sources !will need modification if we mess with the sources_std as well
             n_clusters = loc.shape[1]
 
             for i in range(n_clusters):
@@ -678,12 +711,14 @@ class MixtureNormalFamily(StatelessDistributionFamily):
             n_clusters = loc.shape[0]
 
             for i in range(n_clusters):
-                z_cluster = ((x.value - loc[i]) / scale[i]).squeeze(1)  # shape: [n_inds]
+                z_cluster = ((x.value - loc[i]) / scale[i]).squeeze(
+                    1
+                )  # shape: [n_inds]
                 z_list.append(z_cluster)
 
             z = torch.stack(z_list, dim=1)  # shape: [n_inds,n_clusters]
 
-        nll = 0.5 * z ** 2 + torch.log(scale) + cls.nll_constant_standard
+        nll = 0.5 * z**2 + torch.log(scale) + cls.nll_constant_standard
         return WeightedTensor(nll, x.weight), WeightedTensor(z / scale, x.weight)
 
 

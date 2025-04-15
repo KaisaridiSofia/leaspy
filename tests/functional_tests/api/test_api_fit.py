@@ -396,6 +396,15 @@ class LeaspyFitTest(LeaspyFitTestMixin):
             source_dimension=2,
         )
 
+    def test_fit_mixture(self):
+        self.generic_fit(
+            "mixture_logistic",
+            "mixture_logistic",
+            obs_models=observation_model_factory("gaussian_diagonal", dimension=4),
+            source_dimension=2,
+            n_clusters=2,
+        )
+
     @skip("Ordinal observation models are not implemented yet.")
     def test_fit_logistic_ordinal(self):
         self.generic_fit(

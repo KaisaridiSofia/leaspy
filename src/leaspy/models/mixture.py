@@ -1,36 +1,30 @@
 import math
 import warnings
 from abc import abstractmethod
-from typing import Dict, Iterable, Optional
+from typing import Iterable
 
 import numpy as np
 import pandas as pd
 import torch
-from pandas import Categorical
 
 from leaspy.exceptions import LeaspyInputError, LeaspyModelInputError
 from leaspy.io.data.dataset import Dataset
-from leaspy.models.abstract_model import AbstractModel, InitializationMethod
-from leaspy.models.abstract_multivariate_model import AbstractMultivariateModel
+from leaspy.models.abstract_model import AbstractModel
 from leaspy.models.base import InitializationMethod
-from leaspy.models.multivariate import LogisticMultivariateModel
 from leaspy.models.obs_models import (
     FullGaussianObservationModel,
     observation_model_factory,
 )
 from leaspy.utils.docs import doc_with_super
-from leaspy.utils.functional import Exp, MatMul, OrthoBasis, Prod, Sqr, Sum
+from leaspy.utils.functional import Exp, MatMul, OrthoBasis, Sqr
 from leaspy.utils.typing import KwargsType, Optional
 from leaspy.utils.weighted_tensor import (
     TensorOrWeightedTensor,
     WeightedTensor,
     unsqueeze_right,
 )
-from leaspy.variables.distributions import MixtureNormal, MultivariateNormal, Normal
-from leaspy.variables.distributions import MultinomialDistribution as Multinomial
-from leaspy.variables.specs import (  #
-    LVL_FT,
-    Collect,
+from leaspy.variables.distributions import MixtureNormal, Normal
+from leaspy.variables.specs import (
     Hyperparameter,
     IndividualLatentVariable,
     LinkedVariable,
@@ -38,8 +32,6 @@ from leaspy.variables.specs import (  #
     NamedVariables,
     PopulationLatentVariable,
     SuffStatsRW,
-    VariableInterface,
-    VariableName,
     VariableNameToValueMapping,
 )
 from leaspy.variables.state import State
@@ -117,7 +109,7 @@ class AbstractMultivariateMixtureModel(AbstractModel):
                     for obs_model in observation_models
                 ]
             )
-        elif isinstance(observation_models, (dict)):
+        elif isinstance(observation_models, dict):
             # Not really satisfied... Used for api load
             kwargs["obs_models"] = tuple(
                 [
@@ -449,7 +441,7 @@ class MultivariateMixtureModel(AbstractMultivariateMixtureModel):
                 shape=(self.dimension,),
             ),
             log_v0_std=Hyperparameter(0.01),
-            # no xi_mean as hyperaparameter
+            # no xi_mean as hyperparameter
             # LATENT VARS
             log_v0=PopulationLatentVariable(Normal("log_v0_mean", "log_v0_std")),
             # DERIVED VARS
