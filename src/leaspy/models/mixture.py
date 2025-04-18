@@ -262,15 +262,30 @@ class AbstractMultivariateMixtureModel(AbstractModel):
             df_ind = df["TIME"].to_frame(name="tau")
             df_ind["xi"] = 0.0
         else:
+            # df_ind = pd.DataFrame(
+            #    torch.concat([state["xi"], state["tau"]], axis=1),
+            #    columns=["xi", "tau"],
+            #    index=df.index,
+            # )
             df_ind = pd.DataFrame(
-                torch.concat([state["xi"], state["tau"]], axis=1),
+                torch.concat([state["xi"], state["tau"]], axis=1).detach().numpy(),
                 columns=["xi", "tau"],
-                index=df.index,
+                index=np.arange(state["xi"].shape[0]),  # use correct number of rows
             )
+
+        # Set the right initialisation point fpr barrier methods -JOINTMODEL
+        # df_inter = pd.concat(
+        #    [df["EVENT_TIME"] - self.init_tolerance, df_ind["tau"]], axis=1
+        # )
+        # df_ind["tau"] = df_inter.min(axis=1)
 
         if self.source_dimension > 0:
             for i in range(self.source_dimension):
                 df_ind[f"sources_{i}"] = 0.0
+
+        # if self.n_clusters > 0:
+        #    for i in range(self.n_clusters):
+        #        df_ind[f"probs_{i}"] = 1/self.n_clusters
 
         with state.auto_fork(None):
             state.put_individual_latent_variables(df=df_ind)
