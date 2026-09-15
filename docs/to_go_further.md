@@ -14,6 +14,8 @@ This section aims to provide a survival guide for any potential futue developper
 You could start by creating a *my_model.py* with the basic structure of you model.
 What model class should be branched?
 
+Add something here
+
 ### Data
 
 If other than longitudinal, events, covariates you should buid a *_data_reader.py* 
