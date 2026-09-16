@@ -2,14 +2,14 @@
 
 ## Model Implementation
 
-This section aims to provide a survival guide for any potential futue developper who wishes to contribute to leaspy by implementing a new model. In order to implement a new model you should be able to answer the following questions :
+This section aims to provide a survival guide for any potential future developer who wishes to contribute to `leaspy` by implementing a new model. In order to implement a new model you should be able to answer the following questions :
 
 - Data
     - What kind of data my model aims to analyze?
 - Parameters
     - What parameters my model needs to be fully specified?
 - Algorithm
-    - Does my model require a new/modified version of the MCMC-SAEM algortihm to estimate the parameters?
+    - Does my model require a new/modified version of the MCMC-SAEM algorithm to estimate the parameters?
 
 First, you must decide which model class to branch from. An overview of the class architecture is available in the [Developer's Guide](docdev/codesource/architecture.md). The remainder of this guide provides a thorough explanation of each class's characteristics. As a best practice, try to branch new models as low as possible in the inheritance chain. This makes it easier to preserve structure during future refactoring. However, if you need to modify a structural characteristic to make your model work, you can branch higher up. For example, if you need a time reparametrization equation that differs from the **latent disease age** currently implemented, you can create your own `MY_TimeReparametrizedModel` and implement your desired characteristics.
 
@@ -37,7 +37,11 @@ If other than longitudinal, events, covariates you should buid a *_data_reader.p
 
 ### Algortihm
 
-Probably *samplers* because *algo/mcmc_saem* provides the basic structure.
+Thanks to its modular architecture, `leaspy` is designed for seamless extensibility, allowing developers and advanced users to implement and experiment with custom estimation routines. Whether you want to introduce targeted variations of the standard **MCMC-SAEM** algorithm or build an entirely new estimation algorithm from scratch, the library provides a robust structural foundation to support your needs. 
+
+The foundational structures for all algorithmic tasks in `leaspy` are centrally organized within the `leaspy.algo` module. This modular design supplies the core base classes and modules required for essential tasks like model fitting, personalization, and simulation. You can easily define your custom algorithm within the appropriate subsection of `leaspy.algo` and seamlessly register it to drive your longitudinal progression models.
+
+If your specific model introduces unique data properties, constraints, or distinct distribution structures that require adjustments to the standard **MCMC-SAEM** pipeline, you can dive directly into the sampling mechanics. To modify how latent variables are simulated or updated during the algorithmic iterations, start by exploring the `leaspy.samplers.gibbs` module. This module governs the sampling behaviors and provides the foundational hooks required to tailor or optimize the sampling process for complex, specialized models.
 
 ## What kind of scientific question could be answered with leaspy? 
 
