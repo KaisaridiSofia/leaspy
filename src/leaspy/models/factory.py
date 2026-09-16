@@ -26,6 +26,7 @@ class ModelName(str, Enum):
     LME = "lme"
     CONSTANT = "constant"
     MIXTURE_LOGISTIC = "mixture_logistic"
+    MIXTURE = "mixture"
 
 
 def model_factory(
@@ -81,3 +82,5 @@ def model_factory(
         return ConstantModel(instance_name, **kwargs)
     if name == ModelName.MIXTURE_LOGISTIC:
         return LogisticMultivariateMixtureModel(instance_name, **kwargs)
+    if name == ModelName.MIXTURE:
+            return LogisticMultivariateMixtureModel(instance_name, **kwargs)
