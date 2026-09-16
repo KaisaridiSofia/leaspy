@@ -40,7 +40,7 @@ from leaspy.variables.specs import (
     LVL_FT,
 )
 from leaspy.variables.state import State
-from .riemanian_manifold import RiemanianManifoldModel
+from .logistic import LogisticModel
 
 from torch.distributions import Normal as TorchNormal
 
@@ -162,7 +162,7 @@ class MixtureInitializationMixin:
 
 
 class MixtureModel(
-    MixtureInitializationMixin, RiemanianManifoldModel
+    MixtureInitializationMixin, LogisticModel
 ):
     """Mixture Manifold model for multiple variables of interest (logistic formulation)."""
     type = "mixture"
@@ -210,10 +210,9 @@ class MixtureModel(
     def __init__(self, name: Optional[str] = None, **kwargs):
 
         super().__init__(name or self.type, **kwargs)
-    
-        self.source_dimension: Optional[int] = None
-    
+        
         dimension = kwargs.get("dimension", None)
+        source_dimension = kwargs.get("source_dimension", None)
         n_clusters = kwargs.get("n_clusters", None)
         if "features" in kwargs:
             dimension = len(kwargs["features"])
@@ -254,21 +253,6 @@ class MixtureModel(
                 ),
             )
 
-        #if self.n_clusters:
-        #    default_variables_to_track += [
-        #        "probs"
-        #    ]
-        
-        #if self.source_dimension:
-        #    default_variables_to_track += [
-        #        "sources_mean",
-        #    ]
-        
-        #variables_to_track = variables_to_track or default_variables_to_track
-        #self.tracked_variables = self.tracked_variables.union(set(variables_to_track))
-        
-        #self.tracked_variables_ordered = variables_to_track    
-
     def get_variables_specs(self) -> NamedVariables:
         """
         Return the specifications of the variables (latent variables, derived variables,
@@ -282,13 +266,15 @@ class MixtureModel(
             and `LinkedVariable` instances.
         """
         d = super().get_variables_specs()
-        d.update(
-            log_g_mean=ModelParameter.for_pop_mean("log_g", shape=(self.dimension,)),
-            log_g_std=Hyperparameter(0.01),
-            log_g=PopulationLatentVariable(Normal("log_g_mean", "log_g_std")),
-            g=LinkedVariable(Exp("log_g")),
 
-            #rt=LinkedVariable(self.time_reparametrization),
+        conflicting_keys = ['tau_mean', 'tau_std', 'tau_sqr', 'xi_mean', 'xi_std', 'xi_sqr',
+                            'probs', 'xi', 'tau', 'nll_regul_xi_ind', 'nll_regul_xi', 
+                            'nll_regul_tau_ind', 'nll_regul_tau', 'nll_regul_sources_ind', 'nll_regul_sources',
+                            'sources_mean', 'sources_std', 'sources']
+        for key in conflicting_keys:
+            d.pop(key, None)
+
+        d.update(
 
             # PRIORS
             tau_mean=ModelParameter.for_ind_mean_mixture("tau", shape=(self.n_clusters,)),
@@ -303,37 +289,22 @@ class MixtureModel(
             tau=IndividualLatentVariable(MixtureNormal("tau_mean", "tau_std", "probs"),
                                                 sampling_kws={"scale": 10},),
             # DERIVED VARS
-            #alpha=LinkedVariable(Exp("xi")),
         )
         
         if self.source_dimension >= 1:
             d.update(
             # PRIORS
-                #betas_mean=ModelParameter.for_pop_mean(
-                #    "betas",
-                #    shape=(self.dimension - 1, self.source_dimension),
-                #),
-                #betas_std=Hyperparameter(0.01),
                 sources_mean=ModelParameter.for_ind_mean_mixture(
                     "sources",
                     shape=(self.source_dimension, self.n_clusters,),
                 ),
                 sources_std=Hyperparameter(1.0),
                 # LATENT VARS
-                #betas=PopulationLatentVariable(
-                #    Normal("betas_mean", "betas_std"),
-                #    sampling_kws={"scale": 0.5},
-                #),
                 sources=IndividualLatentVariable(MixtureNormal("sources_mean", "sources_std", "probs"),
                                                         sampling_kws={"scale": 10}),
-                # DERIVED VARS
-                #mixing_matrix=LinkedVariable(
-                #    MatMul("orthonormal_basis", "betas").then(torch.t)
-                #),  # shape: (Ns, Nfts)
-                #space_shifts=LinkedVariable(
-                #    MatMul("sources", "mixing_matrix")
-                #),  # shape: (Ni, Nfts)
             )
+        else:
+            d["model"] = LinkedVariable(self.model_no_sources)
         return d
 
     def _validate_compatibility_of_dataset(
@@ -417,7 +388,7 @@ class MixtureModel(
         :exc: `LeaspyModelInputError`
             - `n_clusters` is missing or less than 2
         """
-        super(). _load_hyperparameters(hyperparameters)
+        super()._load_hyperparameters(hyperparameters)
 
         expected_hyperparameters = (
             "features",
@@ -488,67 +459,6 @@ class MixtureModel(
         cls._center_sources_realizations(state)
     
         return super().compute_sufficient_statistics(state)
-
-    @staticmethod
-    def metric(*, g: torch.Tensor) -> torch.Tensor:
-        r"""
-        Compute the metric tensor from input tensor `g`.
-        This function calculates the metric as \((g + 1)^2 / g\) element-wise.
-
-        Parameters
-        ----------
-        g : :class:`torch.Tensor`
-            Input tensor with values of the population parameter `g` for each feature.
-
-        Returns
-        -------
-        :class:`torch.Tensor`
-            The computed metric tensor, same shape as g(number of features)
-        """
-        return (g + 1) ** 2 / g
-
-    @classmethod
-    def model_with_sources(
-        cls,
-        *,
-        rt: TensorOrWeightedTensor[float],
-        space_shifts: TensorOrWeightedTensor[float],
-        metric: TensorOrWeightedTensor[float],
-        v0: TensorOrWeightedTensor[float],
-        g: TensorOrWeightedTensor[float],
-    ) -> torch.Tensor:
-        """
-        Return the model output when sources(spatial components) are present.
-
-        Parameters
-        ----------
-        rt : :class:`~leaspy.utils.weighted_tensor.TensorOrWeightedTensor` [:obj:`float`]
-            Tensor containing the reparametrized time.
-        space_shifts : :class:`~leaspy.utils.weighted_tensor.TensorOrWeightedTensor` [:obj:`float`]
-            Tensor containing the values of the space-shifts
-        metric : :class:`~leaspy.utils.weighted_tensor.TensorOrWeightedTensor` [:obj:`float`]
-            Tensor containing the metric tensor used for computing the spatial/temporal influence.
-        v0 : :class:`~leaspy.utils.weighted_tensor.TensorOrWeightedTensor` [:obj:`float`]
-            Tensor containing the values of the population parameter `v0` for each feature.
-        g : :class:`~leaspy.utils.weighted_tensor.TensorOrWeightedTensor` [:obj:`float`]
-            Tensor containing the values of the population parameter `g` for each feature.
-
-        Returns
-        -------
-        :class:`torch.Tensor`
-            Weighted value tensor after applying sigmoid transformation,
-            representing the model output with sources.
-        """
-        # Shape: (Ni, Nt, Nfts)
-        pop_s = (None, None, ...)
-        rt = unsqueeze_right(rt, ndim=1)  # .filled(float('nan'))
-        w_model_logit = metric[pop_s] * (
-            v0[pop_s] * rt + space_shifts[:, None, ...]
-        ) - torch.log(g[pop_s])
-        model_logit, weights = WeightedTensor.get_filled_value_and_weight(
-            w_model_logit, fill_value=0.0
-        )
-        return WeightedTensor(torch.sigmoid(model_logit), weights).weighted_value
 
     def get_individual_probabilities(self, ip_dataframe: pd.DataFrame):
         """
