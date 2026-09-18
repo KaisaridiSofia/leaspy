@@ -26,6 +26,7 @@ class ModelName(str, Enum):
     LME = "lme"
     CONSTANT = "constant"
     MIXTURE = "mixture"
+    MIXTURE_LOGISTIC = "mixture_logistic"  # backward-compatible alias of MIXTURE
 
 
 def model_factory(
@@ -79,5 +80,5 @@ def model_factory(
         return LMEModel(instance_name, **kwargs)
     if name == ModelName.CONSTANT:
         return ConstantModel(instance_name, **kwargs)
-    if name == ModelName.MIXTURE:
+    if name in (ModelName.MIXTURE, ModelName.MIXTURE_LOGISTIC):
         return MixtureModel(instance_name, **kwargs)
