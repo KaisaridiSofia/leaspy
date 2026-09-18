@@ -395,6 +395,7 @@ class MixtureModel(
             "dimension",
             "source_dimension",
             "n_clusters",
+            "obs_models",
         )
     
         if "n_clusters" in hyperparameters:
