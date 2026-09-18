@@ -220,7 +220,7 @@ class MixtureModel(
         if observation_models is None:
             observation_models = "gaussian-diagonal"
             kwargs["obs_models"] = observation_models
-            
+
         if observation_models == "gaussian-diagonal":
             if n_clusters < 2:
                 raise LeaspyInputError(
@@ -254,7 +254,7 @@ class MixtureModel(
         #            observation_models, dimension=dimension, n_clusters=n_clusters
         #        ),
         #    )
-        super().__init__(name or self.type, **kwargs)
+        super().__init__(self.type, **kwargs)
 
     def get_variables_specs(self) -> NamedVariables:
         """

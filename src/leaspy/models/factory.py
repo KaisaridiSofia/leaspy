@@ -25,7 +25,6 @@ class ModelName(str, Enum):
     SHARED_SPEED_LOGISTIC = "shared_speed_logistic"
     LME = "lme"
     CONSTANT = "constant"
-    MIXTURE_LOGISTIC = "mixture_logistic"
     MIXTURE = "mixture"
 
 
@@ -45,7 +44,7 @@ def model_factory(
             - ``"shared_speed_logistic"``
             - ``"lme"``
             - ``"constant"``
-            - ``"mixture_logistic"``
+            - ``"mixture"``
 
     instance_name : :obj:`str`, optional
         A custom name for the model instance. If not provided, the model's name
