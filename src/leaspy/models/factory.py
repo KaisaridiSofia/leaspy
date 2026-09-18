@@ -80,4 +80,4 @@ def model_factory(
     if name == ModelName.CONSTANT:
         return ConstantModel(instance_name, **kwargs)
     if name == ModelName.MIXTURE:
-            return MixtureModel(instance_name, **kwargs)
+        return MixtureModel(instance_name, **kwargs)
