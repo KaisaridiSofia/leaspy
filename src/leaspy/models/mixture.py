@@ -1,49 +1,32 @@
 import math
 import warnings
-from abc import abstractmethod
-from typing import Iterable, Optional, Dict
+from typing import Optional
 
 import numpy as np
 import pandas as pd
 import torch
 
-from leaspy.exceptions import LeaspyInputError, LeaspyModelInputError, LeaspyIndividualParamsInputError
+from leaspy.exceptions import LeaspyInputError, LeaspyModelInputError
 from leaspy.io.data.dataset import Dataset
-from leaspy.models.base import InitializationMethod
+from leaspy.utils.typing import KwargsType
 
-from leaspy.models.obs_models import (
-    FullGaussianObservationModel,
-    observation_model_factory,
-)
-from leaspy.utils.docs import doc_with_super
-from leaspy.utils.functional import Exp, MatMul, OrthoBasis, Sqr
-from leaspy.utils.typing import DictParams, KwargsType
-
-from leaspy.utils.weighted_tensor import (
-    TensorOrWeightedTensor,
-    WeightedTensor,
-    unsqueeze_right,
-)
-from leaspy.variables.distributions import MixtureNormal, Normal
+from leaspy.variables.distributions import MixtureNormal
 from leaspy.variables.specs import (
     Hyperparameter,
     IndividualLatentVariable,
     LinkedVariable,
     ModelParameter,
     NamedVariables,
-    PopulationLatentVariable,
     SuffStatsRW,
     VariablesLazyValuesRO,
 )
-
-from leaspy.variables.specs import (
-    LVL_FT,
-)
 from leaspy.variables.state import State
+
+from leaspy.models.base import InitializationMethod
+from leaspy.models.obs_models import FullGaussianObservationModel
 from .logistic import LogisticModel
 
 from torch.distributions import Normal as TorchNormal
-
 
 class MixtureInitializationMixin:
     def _compute_initial_values_for_model_parameters(
@@ -210,7 +193,6 @@ class MixtureModel(
     def __init__(self, name: Optional[str] = None, **kwargs):
         
         dimension = kwargs.get("dimension", None)
-        #source_dimension = kwargs.get("source_dimension", None)
         n_clusters = kwargs.get("n_clusters", None)
 
         if "features" in kwargs:
@@ -230,30 +212,7 @@ class MixtureModel(
                 raise LeaspyInputError(
                     "You cannot use a multivariate model with 1 feature"
                 )
-        #if isinstance(observation_models, (list, tuple)):
-        #    kwargs["obs_models"] = tuple(
-        #        [
-        #            observation_model_factory(obs_model, **kwargs)
-        #            for obs_model in observation_models
-        #        ]
-        #    )
-        #elif isinstance(observation_models, (dict)):
-        #    # Not really satisfied... Used for api load
-        #    kwargs["obs_models"] = tuple(
-        #        [
-        #            observation_model_factory(
-        #                observation_models["y"],
-        #                dimension=dimension,
-        #                n_clusters=n_clusters,
-        #            )
-        #        ]
-        #    )
-        #else:
-        #    kwargs["obs_models"] = (
-        #        observation_model_factory(
-        #            observation_models, dimension=dimension, n_clusters=n_clusters
-        #        ),
-        #    )
+        
         super().__init__(self.type, **kwargs)
 
     def get_variables_specs(self) -> NamedVariables:
