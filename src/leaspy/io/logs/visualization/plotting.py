@@ -17,7 +17,7 @@ from leaspy.exceptions import (
 )
 
 from ...outputs import IndividualParameters
-from leaspy.models import LogisticMultivariateMixtureModel, MixtureModel
+from leaspy.models import MixtureModel
 
 
 __all__ = ["Plotting"]

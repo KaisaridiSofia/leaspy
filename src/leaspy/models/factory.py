@@ -7,7 +7,7 @@ from .joint import JointModel
 from .linear import LinearModel
 from .lme import LMEModel
 from .logistic import LogisticModel
-from .mixture import LogisticMultivariateMixtureModel
+from .mixture import MixtureModel
 from .shared_speed_logistic import SharedSpeedLogisticModel
 
 __all__ = [
@@ -80,7 +80,5 @@ def model_factory(
         return LMEModel(instance_name, **kwargs)
     if name == ModelName.CONSTANT:
         return ConstantModel(instance_name, **kwargs)
-    if name == ModelName.MIXTURE_LOGISTIC:
-        return LogisticMultivariateMixtureModel(instance_name, **kwargs)
     if name == ModelName.MIXTURE:
-            return LogisticMultivariateMixtureModel(instance_name, **kwargs)
+            return MixtureModel(instance_name, **kwargs)

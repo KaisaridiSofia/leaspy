@@ -13,7 +13,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.lines import Line2D
 
 from leaspy.io.data import Dataset
-from leaspy.models import McmcSaemCompatibleModel, LogisticMultivariateMixtureModel, MixtureModel
+from leaspy.models import McmcSaemCompatibleModel, MixtureModel
 
 from .base import FitAlgorithm
 
