@@ -498,7 +498,3 @@ class MixtureModel(
         ip_dataframe["cluster_label"] = ip_dataframe[prob_cols].values.argmax(axis=1)
 
         return ip_dataframe
-
-
-# Backward-compatible alias: name of the model up to leaspy 2.1
-LogisticMultivariateMixtureModel = MixtureModel
