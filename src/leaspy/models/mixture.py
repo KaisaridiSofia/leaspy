@@ -228,30 +228,30 @@ class MixtureModel(
                 raise LeaspyInputError(
                     "You cannot use a multivariate model with 1 feature"
                 )
-        if isinstance(observation_models, (list, tuple)):
-            kwargs["obs_models"] = tuple(
-                [
-                    observation_model_factory(obs_model, **kwargs)
-                    for obs_model in observation_models
-                ]
-            )
-        elif isinstance(observation_models, (dict)):
+        #if isinstance(observation_models, (list, tuple)):
+        #    kwargs["obs_models"] = tuple(
+        #        [
+        #            observation_model_factory(obs_model, **kwargs)
+        #            for obs_model in observation_models
+        #        ]
+        #    )
+        #elif isinstance(observation_models, (dict)):
             # Not really satisfied... Used for api load
-            kwargs["obs_models"] = tuple(
-                [
-                    observation_model_factory(
-                        observation_models["y"],
-                        dimension=dimension,
-                        n_clusters=n_clusters,
-                    )
-                ]
-            )
-        else:
-            kwargs["obs_models"] = (
-                observation_model_factory(
-                    observation_models, dimension=dimension, n_clusters=n_clusters
-                ),
-            )
+        #    kwargs["obs_models"] = tuple(
+        #        [
+        #            observation_model_factory(
+        #                observation_models["y"],
+        #                dimension=dimension,
+        #                n_clusters=n_clusters,
+        #            )
+        #        ]
+        #    )
+        #else:
+        #    kwargs["obs_models"] = (
+        #        observation_model_factory(
+        #            observation_models, dimension=dimension, n_clusters=n_clusters
+        #        ),
+        #    )
 
     def get_variables_specs(self) -> NamedVariables:
         """
