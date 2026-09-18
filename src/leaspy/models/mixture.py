@@ -210,13 +210,17 @@ class MixtureModel(
     def __init__(self, name: Optional[str] = None, **kwargs):
         
         dimension = kwargs.get("dimension", None)
-        source_dimension = kwargs.get("source_dimension", None)
+        #source_dimension = kwargs.get("source_dimension", None)
         n_clusters = kwargs.get("n_clusters", None)
+
         if "features" in kwargs:
             dimension = len(kwargs["features"])
+
         observation_models = kwargs.get("obs_models", None)
         if observation_models is None:
             observation_models = "gaussian-diagonal"
+            kwargs["obs_models"] = observation_models
+            
         if observation_models == "gaussian-diagonal":
             if n_clusters < 2:
                 raise LeaspyInputError(
